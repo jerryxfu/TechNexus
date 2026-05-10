@@ -4,7 +4,8 @@ on:
   push:
     paths:
       - 'shared/**'
-      - 'composeApp/**'
+      - 'composeApp/src/androidMain/**'
+      - 'composeApp/src/commonMain/**'
       - 'androidApp/**'
       - 'gradle/**'
       - 'gradlew'

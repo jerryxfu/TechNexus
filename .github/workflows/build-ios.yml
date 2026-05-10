@@ -4,7 +4,8 @@ on:
     paths:
       - 'iosApp/**'
       - 'shared/**'
-      - 'composeApp/**'
+      - 'composeApp/src/commonMain/**'
+      - 'composeApp/src/iosMain/**'
       - 'gradle/**'
       - 'gradlew'
       - 'gradlew.bat'
