@@ -21,3 +21,4 @@ apiKey
 ktorCache/
 composeApp/release/
 androidApp/google-services.json
+iosApp/iosApp/GoogleService-Info.plist
