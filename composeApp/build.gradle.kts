@@ -37,7 +37,6 @@ kotlin {
             api(libs.androidx.activity.compose)
 
             implementation(project.dependencies.platform(libs.firebase.bom))
-            implementation(libs.firebase.analytics)
             implementation(libs.firebase.notifications)
 
             implementation(libs.androidx.preferences)
