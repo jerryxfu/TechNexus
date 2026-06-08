@@ -2,11 +2,10 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.googleServices)
 }
 
 dependencies {
-    implementation(libs.androidx.activity.compose)
-
     implementation(projects.composeApp)
 }
 

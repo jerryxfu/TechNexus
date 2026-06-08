@@ -34,6 +34,11 @@ kotlin {
 
     sourceSets {
         androidMain.dependencies {
+            api(libs.androidx.activity.compose)
+
+            implementation(project.dependencies.platform(libs.firebase.bom))
+            implementation(libs.firebase.notifications)
+
             implementation(libs.androidx.preferences)
             implementation(libs.androidx.navigation.compose)
             implementation(libs.compose.materialIcons.core)
