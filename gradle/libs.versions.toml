@@ -1,5 +1,5 @@
 [versions]
-agp = "9.0.0"
+agp = "9.0.1"
 android-compileSdk = "37"
 android-minSdk = "33"
 android-targetSdk = "37"
@@ -22,6 +22,7 @@ material3 = "1.11.0-alpha07"
 skie = "0.10.12"
 multiplatform-settings = "1.3.0"
 googleServices = "4.4.4"
+vico = "3.1.0"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
@@ -62,6 +63,8 @@ ktor-server-compression-zstd = { module = "io.ktor:ktor-server-compression-zstd"
 ktor-server-forwarded = { module = "io.ktor:ktor-server-forwarded-header", version.ref = "ktor" }
 logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 multiplatform-settings = { module = "com.russhwolf:multiplatform-settings", version.ref = "multiplatform-settings" }
+vico-compose = { group = "com.patrykandpatrick.vico", name = "compose", version.ref = "vico" }
+vico-compose-m3 = { group = "com.patrykandpatrick.vico", name = "compose-m3", version.ref = "vico" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

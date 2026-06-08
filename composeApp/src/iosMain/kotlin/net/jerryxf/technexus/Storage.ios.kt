@@ -5,6 +5,7 @@ import com.russhwolf.settings.Settings
 import kotlinx.cinterop.*
 import platform.Foundation.*
 
+// dont delete
 fun saveString(name: String, data: String) = save(name, data)
 fun loadString(name: String) = load<String>(name)
 

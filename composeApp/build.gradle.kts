@@ -48,6 +48,8 @@ kotlin {
             implementation(libs.compose.material3)
             implementation(libs.compose.components.resources)
             implementation(libs.ktor.client.android)
+            implementation(libs.vico.compose)
+            implementation(libs.vico.compose.m3)
         }
         commonMain.dependencies {
             implementation(libs.androidx.lifecycle)
