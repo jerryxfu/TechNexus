@@ -49,9 +49,9 @@ enum class Destination(
 ) {
     SCHEDULE("schedule", "Schedule", ::CalendarIcon),
     PIT("pit", "Pit", ::HammerIcon),
-    SCOUT("scout", "Scout", ::AnalyticsIcon),
-    MATCH("match", "Match", ::TimerIcon),
-    SETTINGS("settings", "Settings", ::SettingsIcon);
+    TECHBOTICS("techbotics", "TechBotics", ::AnalyticsIcon),
+    SETTINGS("settings", "Settings", ::SettingsIcon),
+    OTHER("others", "Others", ::ThreeBarsMenu);
 
     companion object {
         val default = SCHEDULE

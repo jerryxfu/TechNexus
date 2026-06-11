@@ -35,13 +35,6 @@ fun AnalyticsIcon(modifier: Modifier = Modifier) = Icon(
 )
 
 @Composable
-fun TimerIcon(modifier: Modifier = Modifier) = Icon(
-    Icons.Rounded.Timer,
-    "timer_icon",
-    modifier
-)
-
-@Composable
 fun SettingsIcon(modifier: Modifier = Modifier) = Icon(
     Icons.Rounded.Settings,
     "settings_icon",
@@ -73,6 +66,13 @@ fun HumanIcon(modifier: Modifier = Modifier) = Icon(
 fun HourglassIcon(modifier: Modifier = Modifier) = Icon(
     Icons.Rounded.HourglassBottom,
     "hourglass_icon",
+    modifier
+)
+
+@Composable
+fun ThreeBarsMenu(modifier: Modifier = Modifier) = Icon(
+    Icons.Rounded.Menu,
+    "menu_icon",
     modifier
 )
 

@@ -1,7 +1,8 @@
-package net.jerryxf.technexus
+package net.jerryxf.technexus.schedule
 
 import net.jerryxf.technexus.shared.Event
 import net.jerryxf.technexus.shared.Match
+import kotlin.collections.iterator
 
 fun getPlayoffAlliance(match: Match, event: Event): String? {
     fun matchByNumber(num: Int): Match? =
