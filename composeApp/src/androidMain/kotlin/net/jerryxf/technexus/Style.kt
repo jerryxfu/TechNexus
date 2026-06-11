@@ -1,11 +1,17 @@
 package net.jerryxf.technexus
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun colorScheme() = MaterialTheme.colorScheme.copy()
 
 @Composable
 fun CalendarIcon(modifier: Modifier = Modifier) = Icon(
@@ -69,3 +75,5 @@ fun HourglassIcon(modifier: Modifier = Modifier) = Icon(
     "hourglass_icon",
     modifier
 )
+
+val roundCorners = RoundedCornerShape(5.dp)

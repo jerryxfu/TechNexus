@@ -1,8 +1,9 @@
-package net.jerryxf.technexus
+package net.jerryxf.technexus.statbotics
 
 import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.http.*
+import net.jerryxf.technexus.client
 
 class StatboticsClient(
     private val baseUrl: String = BASE_URL,

@@ -1,4 +1,4 @@
-package net.jerryxf.technexus
+package net.jerryxf.technexus.statbotics
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

@@ -1,4 +1,4 @@
-package net.jerryxf.technexus
+package net.jerryxf.technexus.statbotics
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -123,10 +123,10 @@ class StatsViewModel : ViewModel() {
 // ─── UI state ─────────────────────────────────────────────────────────────────
 
 data class StatsUiState(
-    val teamYear: StatboticsState<StatboticsTeamYear>       = StatboticsState.Idle,
-    val events: StatboticsState<List<StatboticsTeamEvent>>  = StatboticsState.Idle,
-    val matches: StatboticsState<List<StatboticsMatch>>     = StatboticsState.Idle,
-    val year: StatboticsState<StatboticsYear>               = StatboticsState.Idle,
+    val teamYear: StatboticsState<StatboticsTeamYear> = StatboticsState.Idle,
+    val events: StatboticsState<List<StatboticsTeamEvent>> = StatboticsState.Idle,
+    val matches: StatboticsState<List<StatboticsMatch>> = StatboticsState.Idle,
+    val year: StatboticsState<StatboticsYear> = StatboticsState.Idle,
     val selectedEvent: StatboticsTeamEvent?                 = null,
     val epaLabel: String?                                   = null,
     val matchSummaries: List<MatchSummary>                  = emptyList(),
