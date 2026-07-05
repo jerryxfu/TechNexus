@@ -3,11 +3,14 @@ package net.jerryxf.technexus
 import com.russhwolf.settings.NSUserDefaultsSettings
 import com.russhwolf.settings.Settings
 import kotlinx.cinterop.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.MainScope
 import platform.Foundation.*
 
 // dont delete
 fun saveString(name: String, data: String) = save(name, data)
 fun loadString(name: String) = load<String>(name)
+fun createMainScope(): CoroutineScope = MainScope()
 
 actual fun createSettings(): Settings {
     val userDefaults = NSUserDefaults.standardUserDefaults

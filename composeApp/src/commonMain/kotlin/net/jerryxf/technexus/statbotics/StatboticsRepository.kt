@@ -1,4 +1,4 @@
-package net.jerryxf.technexus
+package net.jerryxf.technexus.statbotics
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -116,12 +116,12 @@ fun computePrediction(
     val redWinProb = 1.0 / (1.0 + exp(-k * diff))
     val blueWinProb = 1.0 - redWinProb
     return MatchPrediction(
-        matchKey        = matchKey,
+        matchKey = matchKey,
         predictedWinner = if (redWinProb >= 0.5) Alliance.RED else Alliance.BLUE,
-        redWinProb      = redWinProb,
-        blueWinProb     = blueWinProb,
-        redEpaSum       = redEpa,
-        blueEpaSum      = blueEpa,
+        redWinProb = redWinProb,
+        blueWinProb = blueWinProb,
+        redEpaSum = redEpa,
+        blueEpaSum = blueEpa,
     )
 }
 

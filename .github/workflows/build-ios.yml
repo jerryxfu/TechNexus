@@ -43,7 +43,7 @@ jobs:
             -project iosApp/TechNexus.xcodeproj \
             -scheme TechNexus \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination 'platform=iOS Simulator,name=iPhone 17' \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build

@@ -2,10 +2,52 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
+struct TechNexusAttributes: ActivityAttributes {// WARNING : slop because i had an error. live activity probably isnt working. check commit from jul 4 2026 at 20:25
+    public struct ContentState: Codable, Hashable {
+        // Live activity dynamic state
+        var phaseName: String
+        var activeAllianceName: String?
+        var totalSecondsRemaining: Int
+        var phaseSecondsRemaining: Int
+    }
+    // Static, non-changing attributes (none for now)
+}
+
 struct TechNexusLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: MatchActivityAttributes.self) { context in
-            LockScreenMatchView(state: context.state)
+        ActivityConfiguration(for: TechNexusAttributes.self) { context in
+            // Lock screen / Live Activity view
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(context.state.phaseName)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    if let alliance = context.state.activeAllianceName {
+                        Text(alliance)
+                            .font(.caption2)
+                            .foregroundStyle(
+                                alliance == "Red" ? Color.red : Color.blue
+                            )
+                    }
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(
+                        timerInterval: timerRange(
+                            remaining: context.state.totalSecondsRemaining
+                        ),
+                        countsDown: true
+                    )
+                    .font(.system(.title3, design: .monospaced))
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+
+                    Text("\(context.state.phaseSecondsRemaining)s left")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText(countsDown: true))
+                }
+            }
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -41,17 +83,6 @@ struct TechNexusLiveActivity: Widget {
                             .contentTransition(.numericText(countsDown: true))
                     }
                 }
-
-                DynamicIslandExpandedRegion(.bottom) {
-                    VStack {
-                        ProgressView(
-                            value: phaseProgress(state: context.state),
-                            total: 1.0
-                        )
-                        .tint(phaseColor(name: context.state.phaseName))
-                    }
-                    .padding(.top, 4)
-                }
             } compactLeading: {
                 Text(compactPhaseName(context.state.phaseName))
                     .font(.caption)
@@ -83,16 +114,6 @@ struct TechNexusLiveActivity: Widget {
         return now...end
     }
 
-    private func phaseProgress(state: MatchActivityAttributes.ContentState)
-        -> Double
-    {
-        guard state.phaseDuration > 0 else { return 0 }
-        return 1.0 - Double(state.phaseSecondsRemaining)
-            / Double(
-                state.phaseDuration
-            )
-    }
-
     private func phaseColor(name: String) -> Color {
         switch name {
         case "Autonomous": return .green
@@ -113,69 +134,6 @@ struct TechNexusLiveActivity: Widget {
             let num = name.last.map(String.init) ?? ""
             return "S\(num)"
         default: return "—"
-        }
-    }
-
-    private func formatTime(_ seconds: Int) -> String {
-        let m = seconds / 60
-        let s = seconds % 60
-        return String(format: "%d:%02d", m, s)
-    }
-}
-
-// MARK: - Lock screen view
-
-private struct LockScreenMatchView: View {
-    let state: MatchActivityAttributes.ContentState
-
-    private var matchProgress: Double {
-        let elapsed = 160 - state.totalSecondsRemaining
-        return min(Double(elapsed) / 160.0, 1.0)
-    }
-
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(state.phaseName)
-                        .font(.headline)
-                    if let alliance = state.activeAllianceName {
-                        Text("\(alliance) hub active")
-                            .font(.caption)
-                            .foregroundStyle(
-                                alliance == "Red" ? Color.red : Color.blue
-                            )
-                    }
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(formatTime(state.totalSecondsRemaining))
-                        .font(.system(.title, design: .monospaced))
-                        .fontWeight(.bold)
-                        .monospacedDigit()
-                        .contentTransition(.numericText(countsDown: true))
-                    Text("\(state.phaseSecondsRemaining)s left")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.numericText(countsDown: true))
-                }
-            }
-
-            ProgressView(value: matchProgress, total: 1.0)
-                .tint(phaseColor(name: state.phaseName))
-        }
-        .padding(16)
-    }
-
-    private func phaseColor(name: String) -> Color {
-        switch name {
-        case "Autonomous": return .green
-        case "Auto end pause", "Transition": return .gray
-        case "Endgame": return .orange
-        case _ where name.hasPrefix("Alliance shift"): return .blue
-        default: return .gray
         }
     }
 

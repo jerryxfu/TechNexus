@@ -1,11 +1,8 @@
-package net.jerryxf.technexus
+package net.jerryxf.technexus.schedule
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.MainScope
 import net.jerryxf.technexus.shared.Event
 import net.jerryxf.technexus.shared.Match
-
-fun createMainScope(): CoroutineScope = MainScope()
+import kotlin.collections.iterator
 
 fun getPlayoffAlliance(match: Match, event: Event): String? {
     fun matchByNumber(num: Int): Match? =
