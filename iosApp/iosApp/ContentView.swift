@@ -2,8 +2,6 @@ import ComposeApp
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var viewModel = MatchTimerViewModel()
-
     var body: some View {
         if #available(iOS 26.0, *) {
             tabViewModern
@@ -25,10 +23,6 @@ struct ContentView: View {
 
             Tab("TechBotics", systemImage: "chart.bar") {
                 PlaceholderView(title: "Stats", icon: "chart.bar")
-            }
-
-            Tab("MatchTimer", systemImage: "timer") {
-                MatchView(viewModel: viewModel)
             }
 
             Tab("Settings", systemImage: "gear") {
@@ -55,45 +49,11 @@ struct ContentView: View {
                     Label("Stats", systemImage: "chart.bar")
                 }
 
-            MatchView(viewModel: viewModel)
-                .tabItem {
-                    Label("MatchTimer", systemImage: "timer")
-                }
-
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
         }
-    }
-}
-
-// MARK: - Match tab
-
-private struct MatchView: View {
-    @ObservedObject var viewModel: MatchTimerViewModel
-
-    var body: some View {
-        ZStack(alignment: .top) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    Color.clear.frame(height: 208)
-                    PhaseListView(
-                        matchState: viewModel.matchState,
-                        selectedAlliance: viewModel.lowestAutoAlliance,
-                        onAllianceSelected: { viewModel.setLowestAlliance($0) }
-                    )
-                }
-            }
-
-            FloatingHeaderView(
-                matchState: viewModel.matchState,
-                onStart: viewModel.start,
-                onStop: viewModel.stop
-            )
-            .background(.ultraThinMaterial)
-        }
-        .ignoresSafeArea(edges: .top)
     }
 }
 
