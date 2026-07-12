@@ -55,7 +55,6 @@
 		C44ECA8E2F8AA5E500C32AF6 /* Exceptions for "iosApp" folder in "TechNexusExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				MatchTab/MatchActivityAttributes.swift,
 				ScheduleTab/ScheduleActivityAttributes.swift,
 			);
 			target = C4D69BE72F874332001E4AF9 /* TechNexusExtension */;
