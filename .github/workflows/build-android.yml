@@ -26,7 +26,7 @@ jobs:
           distribution: "temurin"
           java-version: 25
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v6.2.0
         with:
           cache-disabled: false
       - name: Write google-services.json
