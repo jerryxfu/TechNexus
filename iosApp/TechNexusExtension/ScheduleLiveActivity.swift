@@ -115,7 +115,10 @@ struct ScheduleLiveActivity: Widget {
 
     private func teamsLine(_ teams: [String], color: Color) -> some View {
         HStack(spacing: 3) {
-            ForEach(teams, id: \.self) { team in
+            // Index-keyed on purpose: team strings are not unique once
+            // teamList() maps missing entries to "N/A", and duplicate IDs
+            // can blank the whole activity.
+            ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
                 Text(team)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(color)
@@ -319,7 +322,7 @@ private struct ScheduleLockScreenView: View {
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(color.opacity(0.7))
             HStack(spacing: 4) {
-                ForEach(teams, id: \.self) { team in
+                ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
                     Text(team)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
