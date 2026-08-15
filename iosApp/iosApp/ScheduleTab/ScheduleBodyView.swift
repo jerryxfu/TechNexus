@@ -31,6 +31,11 @@ struct ScheduleBodyView: View {
             }
 
             LazyVStack(spacing: 8) {
+                if error != nil {
+                    staleBanner
+                        .padding(.horizontal, 14)
+                }
+
                 HighlightTeamsBar(highlightedTeams: $highlightedTeams)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 4)
@@ -146,6 +151,22 @@ struct ScheduleBodyView: View {
     }
 
     // MARK: - Empty states
+
+    /// Shown above a schedule we already have when a refresh fails.
+    private var staleBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.exclamationmark")
+                .foregroundStyle(.orange)
+            Text("Couldn't refresh \u{2014} showing the last update.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
 
     private func errorView(_ message: String) -> some View {
         VStack(spacing: 12) {

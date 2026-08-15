@@ -11,12 +11,11 @@ final class ScheduleLiveActivityManager {
     private var currentActivity: Activity<ScheduleActivityAttributes>?
 
     private init() {
-        // On init, adopt any existing activity so we don't create duplicates
-        // after an app relaunch
-        if let existing = Activity<ScheduleActivityAttributes>.activities.first
-        {
-            currentActivity = existing
-        }
+        // Adopt an existing *active* activity so a relaunch doesn't create a
+        // duplicate. Ended/stale ones must not be adopted: update() on a dead
+        // activity does nothing, and we'd never request a fresh one.
+        currentActivity = Activity<ScheduleActivityAttributes>.activities
+            .first { $0.activityState == .active }
     }
 
     /// Start or update the schedule Live Activity.
@@ -25,16 +24,28 @@ final class ScheduleLiveActivityManager {
         event: Event,
         highlightedTeams: [String: Color]
     ) async {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            print(
+                "[LiveActivity] Off in iOS Settings > TechNexus > Live Activities"
+            )
+            return
+        }
 
         let state = buildContentState(
             event: event,
             highlightedTeams: highlightedTeams
         )
         guard let state else {
-            // No latest match, end any running activity
+            print("[LiveActivity] No queuing/on-field match — ending activity")
             await end()
             return
+        }
+
+        // Let go of an activity the system has already torn down, otherwise
+        // we'd keep updating it forever and never start a new one.
+        if let activity = currentActivity, activity.activityState != .active {
+            print("[LiveActivity] Dropping stale handle (\(activity.activityState))")
+            currentActivity = nil
         }
 
         // If one exists, update; otherwise create
@@ -50,8 +61,9 @@ final class ScheduleLiveActivityManager {
                     content: .init(state: state, staleDate: nil),
                     pushType: nil
                 )
+                print("[LiveActivity] Started for \(state.matchLabel)")
             } catch {
-                print("Failed to start schedule Live Activity: \(error)")
+                print("[LiveActivity] Failed to start: \(error)")
             }
         }
     }
@@ -80,7 +92,7 @@ final class ScheduleLiveActivityManager {
 
         return ScheduleActivityAttributes.ContentState(
             matchLabel: latest.label,
-            matchStatus: statusText(for: latest),
+            matchStatus: statusText(for: latest, in: event),
             redTeams: redTeams,
             blueTeams: blueTeams,
             startTimeEpoch: latest.times.estimatedStartTime,
@@ -116,9 +128,12 @@ final class ScheduleLiveActivityManager {
         return nil
     }
 
-    private func statusText(for match: Match) -> String {
+    private func statusText(for match: Match, in event: Event) -> String {
+        // Must be the full match list: passing [match] made the
+        // "superseded by a newer on-field match" check impossible to trigger.
         let currentOnFieldStart = MatchStatusHelper.currentOnFieldStart(
-            in: [match])
+            in: event.matches
+        )
         if MatchStatusHelper.isCurrentlyPlaying(
             match,
             currentOnFieldStart: currentOnFieldStart

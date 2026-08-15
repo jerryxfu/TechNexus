@@ -21,10 +21,11 @@ struct ContentView: View {
                 PitTabView()
             }
 
-            Tab("TechBotics", systemImage: "chart.bar") {
+/*
+   Tab("TechBotics", systemImage: "chart.bar") {
                 PlaceholderView(title: "Stats", icon: "chart.bar")
             }
-
+*/
             Tab("Settings", systemImage: "gear") {
                 SettingsView()
             }
@@ -43,38 +44,17 @@ struct ContentView: View {
                 .tabItem {
                     Label("Pit", systemImage: "hammer")
                 }
-
-            PlaceholderView(title: "TechBotics", icon: "chart.bar")
+/*
+   PlaceholderView(title: "TechBotics", icon: "chart.bar")
                 .tabItem {
                     Label("Stats", systemImage: "chart.bar")
                 }
+*/
 
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
         }
-    }
-}
-
-// MARK: - Placeholder
-
-private struct PlaceholderView: View {
-    let title: String
-    let icon: String
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
-            Text(title)
-                .font(.title2)
-                .fontWeight(.semibold)
-            Text("Coming soon")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

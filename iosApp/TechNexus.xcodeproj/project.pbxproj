@@ -59,13 +59,6 @@
 			);
 			target = C4D69BE72F874332001E4AF9 /* TechNexusExtension */;
 		};
-		C4D69C012F874333001E4AF9 /* Exceptions for "TechNexusExtension" folder in "TechNexusExtension" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = C4D69BE72F874332001E4AF9 /* TechNexusExtension */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -76,14 +69,6 @@
 				C44ECA8E2F8AA5E500C32AF6 /* Exceptions for "iosApp" folder in "TechNexusExtension" target */,
 			);
 			path = iosApp;
-			sourceTree = "<group>";
-		};
-		C4D69BEE2F874332001E4AF9 /* TechNexusExtension */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				C4D69C012F874333001E4AF9 /* Exceptions for "TechNexusExtension" folder in "TechNexusExtension" target */,
-			);
-			path = TechNexusExtension;
 			sourceTree = "<group>";
 		};
 		E5C2E8595ABF6942542D2CE5 /* Configuration */ = {
@@ -128,7 +113,6 @@
 			children = (
 				E5C2E8595ABF6942542D2CE5 /* Configuration */,
 				A05F154E77A4D280FB24DEB2 /* iosApp */,
-				C4D69BEE2F874332001E4AF9 /* TechNexusExtension */,
 				C4D69BE92F874332001E4AF9 /* Frameworks */,
 				155CA74397DDD84162C6D2C0 /* Products */,
 			);
@@ -184,9 +168,6 @@
 			);
 			dependencies = (
 			);
-			fileSystemSynchronizedGroups = (
-				C4D69BEE2F874332001E4AF9 /* TechNexusExtension */,
-			);
 			name = TechNexusExtension;
 			packageProductDependencies = (
 			);
@@ -202,7 +183,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2640;
-				LastUpgradeCheck = 2640;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					ABE280FAB7D7A8D4B56FDDB1 = {
 						CreatedOnToolsVersion = 16.2;
@@ -388,7 +369,7 @@
 				INFOPLIST_KEY_UIStatusBarStyle = "";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.7;
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -423,7 +404,7 @@
 				INFOPLIST_KEY_UIStatusBarStyle = "";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.7;
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -509,7 +490,7 @@
 				INFOPLIST_FILE = TechNexusExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = TechNexusExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -541,7 +522,7 @@
 				INFOPLIST_FILE = TechNexusExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = TechNexusExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

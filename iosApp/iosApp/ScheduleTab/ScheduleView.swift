@@ -7,89 +7,67 @@ struct ScheduleView: View {
     @State private var highlightedTeams: [String: Color] = [:]
 
     var body: some View {
-        if #available(iOS 17.0, *) {
-            ZStack(alignment: .top) {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        Color.clear.frame(height: 135)
-
-                        ScheduleBodyView(
-                            event: event,
-                            error: error,
-                            highlightedTeams: $highlightedTeams
-                        )
-                    }
+        ScrollView {
+            ScheduleBodyView(
+                event: event,
+                error: error,
+                highlightedTeams: $highlightedTeams
+            )
+        }
+        .safeAreaInset(edge: .top, spacing: 12) {
+            ScheduleHeaderView(event: event)
+                .background {
+                    // Material bleeds up under the status bar, but the header itself stays inside the safe area on every device.
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .ignoresSafeArea(edges: .top)
                 }
-
-                ScheduleHeaderView(event: event)
-                    .background(.ultraThinMaterial)
-            }
-            .ignoresSafeArea(edges: .top)
-            .task {
-                await refreshLoop()
-            }
-            .onChange(of: highlightedTeams) { _, _ in
-                updateLiveActivityForHighlights()
-            }
-        } else {
-            ZStack(alignment: .top) {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        Color.clear.frame(height: 120)
-
-                        ScheduleBodyView(
-                            event: event,
-                            error: error,
-                            highlightedTeams: $highlightedTeams
-                        )
-                    }
-                }
-
-                ScheduleHeaderView(event: event)
-                    .background(.ultraThinMaterial)
-            }
-            .ignoresSafeArea(edges: .top)
-            .task {
-                await refreshLoop()
-            }
-            .onChange(of: highlightedTeams) { _ in
-                updateLiveActivityForHighlights()
-            }
+        }
+        .task {
+            await refreshLoop()
+        }
+        .task(id: highlightedTeams) {
+            guard let event else { return }
+            await ScheduleLiveActivityManager.shared.startOrUpdate(
+                event: event,
+                highlightedTeams: highlightedTeams
+            )
         }
     }
 
-    private func updateLiveActivityForHighlights() {
-        // Keep the Live Activity in sync when highlighted teams change.
-        if let event {
-            Task {
-                await ScheduleLiveActivityManager.shared.startOrUpdate(
-                    event: event,
-                    highlightedTeams: highlightedTeams
-                )
-            }
-        }
-    }
+    // MARK: - Refresh
 
     private func refreshLoop() async {
         while !Task.isCancelled {
-            do {
-                let newEvent = try await BackendKt.getEventData(
-                    eventKey: SettingsManager.shared.settings.getEventId()
-                )
-                event = newEvent
-                error = nil
-
-                // Auto-start or update the Live Activity (never creates dupes)
-                if let newEvent {
-                    await ScheduleLiveActivityManager.shared.startOrUpdate(
-                        event: newEvent,
-                        highlightedTeams: highlightedTeams
-                    )
-                }
-            } catch {
-                self.error = error.localizedDescription
-            }
+            await refreshOnce()
             try? await Task.sleep(for: .seconds(15))
+        }
+    }
+
+    private func refreshOnce() async {
+        let eventKey = SettingsManager.shared.settings.getEventId()
+
+        do {
+            // getEventData() catches its own exceptions and returns nil (not and error, so nil = error)
+            guard
+                let newEvent = try await BackendKt.getEventData(
+                    eventKey: eventKey
+                )
+            else {
+                error =
+                    "Couldn't load \(eventKey). Check your connection, or the Event ID in Settings."
+                return
+            }
+
+            event = newEvent
+            error = nil
+
+            await ScheduleLiveActivityManager.shared.startOrUpdate(
+                event: newEvent,
+                highlightedTeams: highlightedTeams
+            )
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 }

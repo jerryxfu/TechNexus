@@ -10,7 +10,7 @@ struct PitTabView: View {
                     RobotInfoCard {
                         showRobotDetail = true
                     }
-
+                    /*
                     SectionTitle(title: "Pit Checklist", icon: "checklist")
 
                     SectionTitle(
@@ -20,6 +20,7 @@ struct PitTabView: View {
 
                     // Placeholder for future pit content
                     Text("Pit tools coming soon")
+                    */
                 }
                 .padding(16)
             }

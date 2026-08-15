@@ -59,7 +59,7 @@ struct ScheduleHeaderView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
-        .padding(.top, 60)
+        .padding(.top, 8)
         .padding(.bottom, 12)
     }
 
