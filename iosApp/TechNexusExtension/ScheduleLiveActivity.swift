@@ -4,7 +4,7 @@ import WidgetKit
 
 struct ScheduleLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfigurationS(for: ScheduleActivityAttributes.self) { context in
+        ActivityConfiguration(for: ScheduleActivityAttributes.self) { context in
             ScheduleLockScreenView(
                 state: context.state,
                 isStale: context.isStale
@@ -111,36 +111,19 @@ struct ScheduleLiveActivity: Widget {
                     .padding(.bottom, 6)
                 }
                 // MARK: - Compact view
-            } compactLeading: {
+            } compactLeading: {  // left side
                 Text(LiveActivityFormat.compactLabel(context.state.matchLabel))
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(statusColor)
-            } compactTrailing: {
-                Group {
-                    if LiveActivityFormat.fitsCompactCountdown(
-                        epoch: context.state.startTimeEpoch
-                    ) {
-                        Text(
-                            timerInterval: timer.range,
-                            countsDown: timer.countsDown
-                        )
-                        .foregroundStyle(
-                            context.isStale
-                                ? .gray : (timer.isOverdue ? .orange : .primary)
-                        )
-                    } else {
-                        // Beyond an hour out a live countdown reads H:MM:SS and
-                        // truncates in ~60pt. Clock time is shorter and more useful.
-                        // TODO: we still want to keep seconds.
-                        Text(
-                            LiveActivityFormat.time(
-                                epoch: context.state.startTimeEpoch
-                            )
-                        )
-                        .foregroundStyle(.secondary)
-                    }
-                }
+            } compactTrailing: {  // right side
+                Text(
+                    timerInterval: timer.range,
+                    countsDown: timer.countsDown
+                ).foregroundStyle(
+                    context.isStale
+                        ? .gray : (timer.isOverdue ? .orange : .primary)
+                )
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.semibold)
                 .monospacedDigit()
@@ -165,14 +148,10 @@ struct ScheduleLiveActivity: Widget {
 
     // MARK: - Subviews
 
-    /// One alliance per row, no RED/BLUE labels — colour carries it, and the
-    /// centre column is only about as wide as the camera cutout. Fixed-width
-    /// cells keep the two rows aligned with each other instead of drifting.
+    /// One alliance per row, no RED/BLUE labels. Fixed-width cells keep the two rows aligned with each other.
     private func allianceRow(_ teams: [String], color: Color) -> some View {
         HStack(spacing: 4) {
-            // Index-keyed on purpose: team strings are not unique once
-            // teamList() maps missing entries to "N/A", and duplicate IDs
-            // can blank the whole activity.
+            // Index-keyed on purpose: team strings are not unique once teamList() maps missing entries to "N/A"
             ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
                 Text(team)
                     .font(.subheadline)
@@ -191,7 +170,8 @@ struct ScheduleLiveActivity: Widget {
     ) -> some View {
         HStack(spacing: 3) {
             ForEach(teams, id: \.team) { info in
-                let presentation = LiveActivityFormat
+                let presentation =
+                    LiveActivityFormat
                     .highlightedPresentation(info, isStale: isStale)
                 let tint =
                     LiveActivityFormat.color(hex: info.colorHex) ?? .yellow
@@ -297,7 +277,8 @@ private struct ScheduleLockScreenView: View {
                 .foregroundStyle(.tertiary)
 
             ForEach(state.highlightedTeamsSummary, id: \.team) { info in
-                let presentation = LiveActivityFormat
+                let presentation =
+                    LiveActivityFormat
                     .highlightedPresentation(info, isStale: isStale)
 
                 HStack(spacing: 5) {

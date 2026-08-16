@@ -70,9 +70,9 @@ struct SettingsView: View {
                 .keyboardType(.numberPad)
             }
             Text("Event ID determines which schedule is loaded.")
-            .font(.footnote)
-            .foregroundStyle(.tertiary)
-            .padding(.horizontal, 4)
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 4)
         }
     }
 

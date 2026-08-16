@@ -115,16 +115,6 @@ enum LiveActivityFormat {
             : "due \(clock)"
     }
 
-    /// The Dynamic Island's compact regions are roughly 60pt wide, so a full
-    /// H:MM:SS countdown truncates. Past an hour out we show clock time
-    /// instead — second-by-second precision isn't useful that far ahead.
-    // TODO: we want to keep seconds. there should be enough space after the layout changes.
-    /// The Lock Screen card has room and always shows the full timer.
-    static func fitsCompactCountdown(epoch: Int64) -> Bool {
-        Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-            .timeIntervalSinceNow < 60 * 60
-    }
-
     static func relative(epoch: Int64) -> String {
         let seconds = Int(
             Date(timeIntervalSince1970: Double(epoch) / 1000.0)

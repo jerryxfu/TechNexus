@@ -128,7 +128,6 @@ final class ScheduleLiveActivityManager {
         )
     }
 
-
     private func statusText(for match: Match, in event: Event) -> String {
         // Must be the full match list: passing [match] made the "superseded by a newer on-field match" check impossible to trigger.
         let currentOnFieldStart = MatchStatusHelper.currentOnFieldStart(
