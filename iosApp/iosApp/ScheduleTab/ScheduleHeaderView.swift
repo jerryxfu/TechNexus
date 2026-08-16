@@ -12,7 +12,12 @@ struct ScheduleHeaderView: View {
                 Text(event.eventKey)
                     .font(.system(size: 24, weight: .bold))
 
-                if let latest = MatchStatusHelper.latestMatch(in: event) {
+                // skippingFinished so the header moves on to the next
+                // queuing match instead of sitting on grey "Done" forever.
+                if let latest = MatchStatusHelper.latestMatch(
+                    in: event,
+                    skippingFinished: true
+                ) {
                     let info = MatchStatusHelper.display(for: latest, in: event)
 
                     HStack(spacing: 6) {

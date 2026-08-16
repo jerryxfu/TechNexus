@@ -23,64 +23,46 @@ struct ScheduleLiveActivity: Widget {
             )
 
             return DynamicIsland {
-                // Three regions, no .bottom. Note the system places .center
-                // *below* the TrueDepth camera, so it sits slightly lower than
-                // leading and trailing rather than level with them.
-                //
-                // Fixed sizes below are deliberate: Dynamic Island regions have
-                // hard pixel budgets and barely honour Dynamic Type. See STYLE.md.
+                // Leading and trailing flank the camera and get equal widths.
+                // Everything wide goes in .bottom, which spans the full width —
+                // .center is only about as wide as the camera cutout.
                 DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 1) {
                         Text(context.state.matchLabel)
-                            .font(.caption)
+                            .font(.subheadline)
                             .fontWeight(.semibold)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(0.7)
                         HStack(spacing: 3) {
                             if context.isStale {
                                 Image(systemName: LiveActivityFormat.staleIcon)
-                                    .font(.system(size: 9))
+                                    .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
                             Text(context.state.matchStatus)
-                                .font(.caption2)
+                                .font(.caption)
                                 .foregroundStyle(statusColor)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                DynamicIslandExpandedRegion(.center) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        teamsLine(context.state.redTeams, color: .red)
-                        teamsLine(context.state.blueTeams, color: .blue)
-
-                        if !context.state.highlightedTeamsSummary.isEmpty {
-                            highlightedTeamsRow(
-                                context.state.highlightedTeamsSummary,
-                                isStale: context.isStale
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
+                    VStack(alignment: .trailing, spacing: 1) {
                         Text(
                             timerInterval: timer.range,
                             countsDown: timer.countsDown
                         )
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(.title3, design: .monospaced))
                         .fontWeight(.semibold)
                         .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                         .foregroundStyle(
                             context.isStale
                                 ? .gray : (timer.isOverdue ? .orange : .primary)
                         )
-                        .frame(maxWidth: 80, alignment: .trailing)
 
                         Text(
                             LiveActivityFormat.timeLabel(
@@ -88,12 +70,29 @@ struct ScheduleLiveActivity: Widget {
                                 status: context.state.matchStatus
                             )
                         )
-                        .font(.system(size: 10))
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                     }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+
+                DynamicIslandExpandedRegion(.center) {
+                    VStack(spacing: 2) {
+                        allianceRow(context.state.redTeams, color: .red)
+                        allianceRow(context.state.blueTeams, color: .blue)
+                    }
+                }
+
+                DynamicIslandExpandedRegion(.bottom) {
+                    // Highlighted teams need full width, which only .bottom has.
+                    if !context.state.highlightedTeamsSummary.isEmpty {
+                        highlightedTeamsRow(
+                            context.state.highlightedTeamsSummary,
+                            isStale: context.isStale
+                        )
+                        .padding(.top, 2)
+                    }
                 }
                 // MARK: - Compact view
             } compactLeading: {
@@ -146,15 +145,22 @@ struct ScheduleLiveActivity: Widget {
 
     // MARK: - Subviews
 
-    private func teamsLine(_ teams: [String], color: Color) -> some View {
-        HStack(spacing: 3) {
+    /// One alliance per row, no RED/BLUE labels — colour carries it, and the
+    /// centre column is only about as wide as the camera cutout. Fixed-width
+    /// cells keep the two rows aligned with each other instead of drifting.
+    private func allianceRow(_ teams: [String], color: Color) -> some View {
+        HStack(spacing: 4) {
             // Index-keyed on purpose: team strings are not unique once
             // teamList() maps missing entries to "N/A", and duplicate IDs
             // can blank the whole activity.
             ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
                 Text(team)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.caption)
+                    .fontWeight(.medium)
                     .foregroundStyle(color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(width: 32)
             }
         }
     }
@@ -173,9 +179,9 @@ struct ScheduleLiveActivity: Widget {
                 HStack(spacing: 2) {
                     Circle()
                         .fill(tint)
-                        .frame(width: 4, height: 4)
+                        .frame(width: 5, height: 5)
                     Text("\(info.team) · \(presentation.text)")
-                        .font(.system(size: 9))
+                        .font(.caption2)
                         .foregroundStyle(presentation.color)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
