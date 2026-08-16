@@ -49,9 +49,20 @@ enum LiveActivityFormat {
         }
     }
 
+    // MARK: - Appearance
+
+    /// Translucent on purpose: the wallpaper reads through instead of the card
+    /// presenting a hard black slab. Tune it here, it is set nowhere else.
+    static let backgroundTint = Color.black.opacity(0.4)
+    static let systemActionForeground = Color.white
+
+    /// Shown next to anything that may no longer be current.
+    static let staleIcon = "icloud.slash"
+    static let staleOpacity: Double = 0.6
+
     // MARK: - Time
 
-    // Cached: the Live Activity re-renders on every update.
+    // Cached — the Live Activity re-renders on every update.
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
@@ -65,11 +76,39 @@ enum LiveActivityFormat {
         )
     }
 
-    /// Clamped to now so a past scheduled time renders 0:00 rather than forming an invalid range.
-    static func countdownRange(epoch: Int64) -> ClosedRange<Date> {
+    struct MatchTimer {
+        let range: ClosedRange<Date>
+        let countsDown: Bool
+        /// True once the scheduled start has passed, so the timer is counting
+        /// up and the number on screen is how overdue the match is.
+        var isOverdue: Bool { !countsDown }
+    }
+
+    /// Counts down to the scheduled start, then counts up once it passes.
+    /// A late match reads as "how long overdue" instead of freezing at 0:00,
+    /// which is the difference between "no information" and "the field is
+    /// running behind".
+    static func matchTimer(epoch: Int64) -> MatchTimer {
         let now = Date.now
         let start = Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-        return now...max(start, now)
+
+        if start > now {
+            return MatchTimer(range: now...start, countsDown: true)
+        }
+        // Headroom for the count-up; the label stops at the upper bound.
+        return MatchTimer(
+            range: start...now.addingTimeInterval(60 * 60),
+            countsDown: false
+        )
+    }
+
+    /// The Dynamic Island's compact regions are roughly 60pt wide, so a full
+    /// H:MM:SS countdown truncates. Past an hour out we show clock time
+    /// instead — second-by-second precision isn't useful that far ahead.
+    /// The Lock Screen card has room and always shows the full timer.
+    static func fitsCompactCountdown(epoch: Int64) -> Bool {
+        Date(timeIntervalSince1970: Double(epoch) / 1000.0)
+            .timeIntervalSinceNow < 60 * 60
     }
 
     static func relative(epoch: Int64) -> String {
