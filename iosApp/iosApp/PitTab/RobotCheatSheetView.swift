@@ -279,24 +279,32 @@ private struct UnitToggleRow: View {
         .padding(.vertical, 10)
     }
 
+    // Built the same way as UnitMetricRow's unit pill: everything lives inside
+    // the label, so the pill *is* the button and presses animate. Styling the
+    // outside of a Button decorates a container the button doesn't know about.
     private func unitButton(_ system: UnitSystem) -> some View {
         Group {
             if #available(iOS 26.0, *) {
-                Button(system.title) { onApplyToAll(system) }
-                    .buttonSizing(.flexible)
-                    .font(.system(size: 13, weight: .semibold))
-                    .tint(.gray)
-                    .buttonStyle(.glass)
+                Button { onApplyToAll(system) } label: {
+                    Text(system.title)
+                        .font(.footnote)
+                        .frame(maxWidth: .infinity)
+                }
+                .tint(.secondary)
+                .buttonStyle(.glass)
             } else {
-                Button(system.title) { onApplyToAll(system) }
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(Color(.tertiarySystemFill))
-                    .foregroundStyle(Color.secondary)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    )
+                Button { onApplyToAll(system) } label: {
+                    Text(system.title)
+                        .font(.footnote.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(
+                            Color(.tertiarySystemFill),
+                            in: Capsule()
+                        )
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
             }
         }
     }

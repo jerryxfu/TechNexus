@@ -41,13 +41,9 @@ private struct RobotInfoCard: View {
     private let robot = RobotCheatSheet.defaultRobot
 
     var body: some View {
-        if #available(iOS 26.0, *) {
-            cardButton
-                .buttonStyle(.plain)
-        } else {
-            cardButton
-                .buttonStyle(LegacyCardButtonStyle())
-        }
+        // Plain on every version: the system supplies the press feedback,
+        // so there's nothing to hand-roll and nothing to flash.
+        cardButton.buttonStyle(.plain)
     }
 
     private var cardButton: some View {
@@ -75,8 +71,10 @@ private struct RobotInfoCard: View {
                 if #available(iOS 26.0, *) {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(.regularMaterial)
+                        // Not .interactive(): that's what lit the card up
+                        // white on touch, fighting the button's own feedback.
                         .glassEffect(
-                            .regular.interactive(),
+                            .regular,
                             in: .rect(cornerRadius: 16, style: .continuous)
                         )
                 } else {
@@ -95,23 +93,6 @@ private struct RobotInfoCard: View {
 }
 
 // MARK: - Legacy card press style (pre-iOS 26 only)
-
-private struct LegacyCardButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .shadow(
-                color: .black.opacity(configuration.isPressed ? 0.06 : 0.12),
-                radius: configuration.isPressed ? 4 : 10,
-                x: 0,
-                y: configuration.isPressed ? 2 : 6
-            )
-            .animation(
-                .easeInOut(duration: 0.2),
-                value: configuration.isPressed
-            )
-    }
-}
 
 #Preview {
     PitTabView()

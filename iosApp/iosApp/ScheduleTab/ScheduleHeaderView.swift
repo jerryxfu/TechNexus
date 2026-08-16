@@ -57,13 +57,21 @@ struct ScheduleHeaderView: View {
     private func blinkDot(color: Color) -> some View {
         Circle()
             .fill(color)
-            .frame(width: 6, height: 6)
             .opacity(isDimmed ? 0.25 : 1.0)
             .animation(
                 .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
                 value: isDimmed
             )
-            .onAppear { isDimmed = true }
+            // Frame on the outside, so the slot stays a fixed 6x6 whatever the
+            // animation does inside and can't nudge the centred header.
+            .frame(width: 6, height: 6)
+            .task {
+                // Started from onAppear, a repeatForever animation captures the
+                // insertion's geometry change too and oscillates it forever —
+                // that's what made the dot drift sideways. Let layout settle.
+                try? await Task.sleep(for: .milliseconds(50))
+                isDimmed = true
+            }
             .onDisappear { isDimmed = false }
     }
 }

@@ -2,9 +2,13 @@ import SwiftUI
 
 /// Shared by the Dynamic Island and the Lock Screen presentations.
 ///
+/// Both used to carry private copies of every function below, and they had
+/// already drifted: `highlightedPresentation` produced "queuing in 15m" in the
+/// Island and "Queuing in 15m" on the Lock Screen for identical state.
+///
 /// Note this deliberately does *not* share `MatchStatusHelper` from the app
 /// target. That file imports ComposeApp for the `Match` type, which the
-/// extension doesn't link and it maps *raw* API statuses, whereas everything
+/// extension doesn't link — and it maps *raw* API statuses, whereas everything
 /// here maps the already-resolved display strings the manager sends over.
 enum LiveActivityFormat {
 
@@ -27,7 +31,10 @@ enum LiveActivityFormat {
         return Color(red: red, green: green, blue: blue)
     }
 
-    static func statusColor(_ status: String) -> Color {
+    /// Stale data reads gray everywhere. A green "On field" that might be
+    /// twenty minutes old is worse than no colour at all.
+    static func statusColor(_ status: String, isStale: Bool = false) -> Color {
+        guard !isStale else { return .gray }
         switch status.lowercased() {
         case "on field": return .green
         case "on deck": return .blue
@@ -53,16 +60,15 @@ enum LiveActivityFormat {
 
     /// Translucent on purpose: the wallpaper reads through instead of the card
     /// presenting a hard black slab. Tune it here, it is set nowhere else.
-    static let backgroundTint = Color.black.opacity(0.4)
+    static let backgroundTint = Color.black.opacity(0.55)
     static let systemActionForeground = Color.white
 
     /// Shown next to anything that may no longer be current.
     static let staleIcon = "icloud.slash"
-    static let staleOpacity: Double = 0.6
 
     // MARK: - Time
 
-    // Cached — the Live Activity re-renders on every update.
+    // Cached, the Live Activity re-renders on every update.
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
@@ -100,6 +106,17 @@ enum LiveActivityFormat {
             range: start...now.addingTimeInterval(60 * 60),
             countsDown: false
         )
+    }
+
+    /// Clarifies the match's time relative to now.
+    static func timeLabel(epoch: Int64, status: String) -> String {
+        let clock = time(epoch: epoch)
+        guard matchTimer(epoch: epoch).isOverdue else {
+            return "starts \(clock)"
+        }
+        return status.lowercased() == "on field"
+            ? "started \(clock)"
+            : "due \(clock)"
     }
 
     /// The Dynamic Island's compact regions are roughly 60pt wide, so a full
@@ -151,14 +168,17 @@ enum LiveActivityFormat {
 
     /// A team queuing more than ten minutes out is de-emphasised, since it
     /// isn't actionable yet.
-    static func highlightedPresentation(_ info: HighlightedTeamInfo)
-        -> (text: String, color: Color)
-    {
+    static func highlightedPresentation(
+        _ info: HighlightedTeamInfo,
+        isStale: Bool = false
+    ) -> (text: String, color: Color) {
         guard
             info.status.lowercased() == "queuing soon",
             let epoch = info.statusEtaEpoch
         else {
-            return (statusWithEta(info), statusColor(info.status))
+            return (
+                statusWithEta(info), statusColor(info.status, isStale: isStale)
+            )
         }
 
         let seconds = Date(timeIntervalSince1970: Double(epoch) / 1000.0)

@@ -29,14 +29,19 @@ struct LiveStatusBadge: View {
                 // Flips on both appear and disappear so the animation restarts after a tab switch instead of freezing on one frame.
                 Circle()
                     .fill(color)
-                    .frame(width: 6, height: 6)
                     .opacity(isDimmed ? 0.25 : 1.0)
                     .animation(
                         .easeInOut(duration: 0.8)
                             .repeatForever(autoreverses: true),
                         value: isDimmed
                     )
-                    .onAppear { isDimmed = true }
+                    // Frame outside the animation so the slot can't resize.
+                    .frame(width: 6, height: 6)
+                    .task {
+                        // Let layout settle first: a repeatForever animation started during insertion oscillates the geometry too.
+                        try? await Task.sleep(for: .milliseconds(50))
+                        isDimmed = true
+                    }
                     .onDisappear { isDimmed = false }
             }
         }

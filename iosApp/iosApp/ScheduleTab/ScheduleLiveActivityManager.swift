@@ -15,11 +15,10 @@ final class ScheduleLiveActivityManager {
         // duplicate. Ended/stale ones must not be adopted: update() on a dead
         // activity does nothing, and we'd never request a fresh one.
         currentActivity = Activity<ScheduleActivityAttributes>.activities
-            .first { $0.activityState == .active }
+            .first { Self.isRevivable($0.activityState) }
     }
 
-    /// Start or update the schedule Live Activity.
-    /// If one is already running, just update it.
+    /// Start or update the schedule Live Activity. If one is already running, just update it.
     func startOrUpdate(
         event: Event,
         highlightedTeams: [String: Color]
@@ -46,10 +45,13 @@ final class ScheduleLiveActivityManager {
             return
         }
 
-        // Let go of an activity the system has already torn down, otherwise
-        // we'd keep updating it forever and never start a new one.
-        if let activity = currentActivity, activity.activityState != .active {
-            print("[LiveActivity] Dropping stale handle (\(activity.activityState))")
+        // Let go of an activity the system has already torn down, otherwise we'd keep updating it forever and never start a new one.
+        if let activity = currentActivity,
+            !Self.isRevivable(activity.activityState)
+        {
+            print(
+                "[LiveActivity] Dropping dead handle (\(activity.activityState))"
+            )
             currentActivity = nil
         }
 
@@ -75,8 +77,17 @@ final class ScheduleLiveActivityManager {
         }
     }
 
-    /// Past this point the system dims the card rather than presenting data
-    /// that may no longer be true.
+    /// `.stale` only means the content is past its staleDate — the activity is
+    /// still live, and updating it revives it. Treating stale as dead ends a
+    /// working card and starts a duplicate beside it.
+    private static func isRevivable(_ state: ActivityState) -> Bool {
+        switch state {
+        case .active, .stale: return true
+        default: return false
+        }
+    }
+
+    /// Past this point the system marks the card stale rather than showing data that may no longer be true.
     private static func staleDate() -> Date {
         Date().addingTimeInterval(5 * 60)
     }

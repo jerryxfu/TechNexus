@@ -18,11 +18,15 @@ struct ScheduleLiveActivity: Widget {
                 epoch: context.state.startTimeEpoch
             )
             let statusColor = LiveActivityFormat.statusColor(
-                context.state.matchStatus
+                context.state.matchStatus,
+                isStale: context.isStale
             )
 
             return DynamicIsland {
-                // MARK: - Expanded view
+                // Three regions, no .bottom. Note the system places .center
+                // *below* the TrueDepth camera, so it sits slightly lower than
+                // leading and trailing rather than level with them.
+                //
                 // Fixed sizes below are deliberate: Dynamic Island regions have
                 // hard pixel budgets and barely honour Dynamic Type. See STYLE.md.
                 DynamicIslandExpandedRegion(.leading) {
@@ -30,6 +34,8 @@ struct ScheduleLiveActivity: Widget {
                         Text(context.state.matchLabel)
                             .font(.caption)
                             .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                         HStack(spacing: 3) {
                             if context.isStale {
                                 Image(systemName: LiveActivityFormat.staleIcon)
@@ -39,8 +45,26 @@ struct ScheduleLiveActivity: Widget {
                             Text(context.state.matchStatus)
                                 .font(.caption2)
                                 .foregroundStyle(statusColor)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                DynamicIslandExpandedRegion(.center) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        teamsLine(context.state.redTeams, color: .red)
+                        teamsLine(context.state.blueTeams, color: .blue)
+
+                        if !context.state.highlightedTeamsSummary.isEmpty {
+                            highlightedTeamsRow(
+                                context.state.highlightedTeamsSummary,
+                                isStale: context.isStale
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
@@ -52,42 +76,24 @@ struct ScheduleLiveActivity: Widget {
                         .font(.system(.caption, design: .monospaced))
                         .fontWeight(.semibold)
                         .monospacedDigit()
-                        .foregroundStyle(timer.isOverdue ? .orange : .primary)
+                        .foregroundStyle(
+                            context.isStale
+                                ? .gray : (timer.isOverdue ? .orange : .primary)
+                        )
                         .frame(maxWidth: 80, alignment: .trailing)
 
                         Text(
-                            timer.isOverdue
-                                ? "since \(LiveActivityFormat.time(epoch: context.state.startTimeEpoch))"
-                                : LiveActivityFormat.time(
-                                    epoch: context.state.startTimeEpoch
-                                )
+                            LiveActivityFormat.timeLabel(
+                                epoch: context.state.startTimeEpoch,
+                                status: context.state.matchStatus
+                            )
                         )
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     }
                     .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-
-                DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            teamsLine(context.state.redTeams, color: .red)
-                            Text("vs")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                            teamsLine(context.state.blueTeams, color: .blue)
-                        }
-
-                        if !context.state.highlightedTeamsSummary.isEmpty {
-                            highlightedTeamsRow(
-                                context.state.highlightedTeamsSummary
-                            )
-                        }
-                    }
-                    .padding(.top, 2)
-                    .opacity(
-                        context.isStale ? LiveActivityFormat.staleOpacity : 1
-                    )
                 }
                 // MARK: - Compact view
             } compactLeading: {
@@ -104,7 +110,10 @@ struct ScheduleLiveActivity: Widget {
                             timerInterval: timer.range,
                             countsDown: timer.countsDown
                         )
-                        .foregroundStyle(timer.isOverdue ? .orange : .primary)
+                        .foregroundStyle(
+                            context.isStale
+                                ? .gray : (timer.isOverdue ? .orange : .primary)
+                        )
                     } else {
                         // Beyond an hour out a live countdown reads H:MM:SS and
                         // truncates in ~60pt. Clock time is shorter and more useful.
@@ -150,13 +159,14 @@ struct ScheduleLiveActivity: Widget {
         }
     }
 
-    private func highlightedTeamsRow(_ teams: [HighlightedTeamInfo])
-        -> some View
-    {
+    private func highlightedTeamsRow(
+        _ teams: [HighlightedTeamInfo],
+        isStale: Bool
+    ) -> some View {
         HStack(spacing: 3) {
             ForEach(teams, id: \.team) { info in
                 let presentation = LiveActivityFormat
-                    .highlightedPresentation(info)
+                    .highlightedPresentation(info, isStale: isStale)
                 let tint =
                     LiveActivityFormat.color(hex: info.colorHex) ?? .yellow
 
@@ -205,7 +215,6 @@ private struct ScheduleLockScreenView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .opacity(isStale ? LiveActivityFormat.staleOpacity : 1)
     }
 
     private var header: some View {
@@ -222,7 +231,10 @@ private struct ScheduleLockScreenView: View {
                     Text(state.matchStatus)
                         .font(.caption)
                         .foregroundStyle(
-                            LiveActivityFormat.statusColor(state.matchStatus)
+                            LiveActivityFormat.statusColor(
+                                state.matchStatus,
+                                isStale: isStale
+                            )
                         )
                 }
             }
@@ -233,12 +245,15 @@ private struct ScheduleLockScreenView: View {
                 Text(timerInterval: timer.range, countsDown: timer.countsDown)
                     .font(.system(.headline, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(timer.isOverdue ? .orange : .primary)
+                    .foregroundStyle(
+                        isStale ? .gray : (timer.isOverdue ? .orange : .primary)
+                    )
 
                 Text(
-                    timer.isOverdue
-                        ? "overdue since \(LiveActivityFormat.time(epoch: state.startTimeEpoch))"
-                        : LiveActivityFormat.time(epoch: state.startTimeEpoch)
+                    LiveActivityFormat.timeLabel(
+                        epoch: state.startTimeEpoch,
+                        status: state.matchStatus
+                    )
                 )
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -257,7 +272,7 @@ private struct ScheduleLockScreenView: View {
 
             ForEach(state.highlightedTeamsSummary, id: \.team) { info in
                 let presentation = LiveActivityFormat
-                    .highlightedPresentation(info)
+                    .highlightedPresentation(info, isStale: isStale)
 
                 HStack(spacing: 5) {
                     Circle()

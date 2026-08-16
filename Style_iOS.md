@@ -162,6 +162,11 @@ This has bitten this codebase twice:
 .onDisappear { isDimmed = false }
 ```
 
+A `repeatForever` animation started from `.onAppear` fires while the view is still being inserted, so it captures the
+insertion's geometry change alongside whatever you meant to animate — and then oscillates *both* forever. In a centred
+container that shows up as the view drifting sideways in time with the fade. Put the `.frame` outside the `.animation`
+so the slot can't resize, and start the animation from `.task` after a short sleep so layout has settled.
+
 Prefer `.task(id:)` over `.onChange(of:)` — one spelling that works on iOS 16 and 17+, instead of an availability branch
 that splits view identity.
 
