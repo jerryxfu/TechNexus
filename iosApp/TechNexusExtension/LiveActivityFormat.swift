@@ -2,13 +2,9 @@ import SwiftUI
 
 /// Shared by the Dynamic Island and the Lock Screen presentations.
 ///
-/// Both used to carry private copies of every function below, and they had
-/// already drifted: `highlightedPresentation` produced "queuing in 15m" in the
-/// Island and "Queuing in 15m" on the Lock Screen for identical state.
-///
 /// Note this deliberately does *not* share `MatchStatusHelper` from the app
 /// target. That file imports ComposeApp for the `Match` type, which the
-/// extension doesn't link — and it maps *raw* API statuses, whereas everything
+/// extension doesn't link and it maps *raw* API statuses, whereas everything
 /// here maps the already-resolved display strings the manager sends over.
 enum LiveActivityFormat {
 
@@ -122,6 +118,7 @@ enum LiveActivityFormat {
     /// The Dynamic Island's compact regions are roughly 60pt wide, so a full
     /// H:MM:SS countdown truncates. Past an hour out we show clock time
     /// instead — second-by-second precision isn't useful that far ahead.
+    // TODO: we want to keep seconds. there should be enough space after the layout changes.
     /// The Lock Screen card has room and always shows the full timer.
     static func fitsCompactCountdown(epoch: Int64) -> Bool {
         Date(timeIntervalSince1970: Double(epoch) / 1000.0)
@@ -166,8 +163,7 @@ enum LiveActivityFormat {
             ? "\(info.status) now" : "\(info.status) \(relativeText)"
     }
 
-    /// A team queuing more than ten minutes out is de-emphasised, since it
-    /// isn't actionable yet.
+    /// A team queuing more than ten minutes out is de-emphasised, since it isn't actionable yet.
     static func highlightedPresentation(
         _ info: HighlightedTeamInfo,
         isStale: Bool = false

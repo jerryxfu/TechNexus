@@ -11,9 +11,8 @@ final class ScheduleLiveActivityManager {
     private var currentActivity: Activity<ScheduleActivityAttributes>?
 
     private init() {
-        // Adopt an existing *active* activity so a relaunch doesn't create a
-        // duplicate. Ended/stale ones must not be adopted: update() on a dead
-        // activity does nothing, and we'd never request a fresh one.
+        // Adopt an existing *active* activity so a relaunch doesn't create a duplicate.
+        // Ended/stale ones must not be adopted: update() on a dead activity does nothing, and we'd never request a fresh one.
         currentActivity = Activity<ScheduleActivityAttributes>.activities
             .first { Self.isRevivable($0.activityState) }
     }
@@ -77,9 +76,8 @@ final class ScheduleLiveActivityManager {
         }
     }
 
-    /// `.stale` only means the content is past its staleDate — the activity is
-    /// still live, and updating it revives it. Treating stale as dead ends a
-    /// working card and starts a duplicate beside it.
+    /// `.stale` only means the content is past its staleDate. The activity is still live, and updating it revives it.
+    // Treating stale as dead ends a working card and starts a duplicate beside it.
     private static func isRevivable(_ state: ActivityState) -> Bool {
         switch state {
         case .active, .stale: return true
@@ -132,8 +130,7 @@ final class ScheduleLiveActivityManager {
 
 
     private func statusText(for match: Match, in event: Event) -> String {
-        // Must be the full match list: passing [match] made the
-        // "superseded by a newer on-field match" check impossible to trigger.
+        // Must be the full match list: passing [match] made the "superseded by a newer on-field match" check impossible to trigger.
         let currentOnFieldStart = MatchStatusHelper.currentOnFieldStart(
             in: event.matches
         )
@@ -243,9 +240,8 @@ final class ScheduleLiveActivityManager {
     }
 }
 
-/// Deliberately outside the @MainActor class so the Settings toggle can read
-/// the key without actor hops. `bool(forKey:)` alone would read an unset key
-/// as false, so read the object and default to on.
+/// Deliberately outside the @MainActor class so the Settings toggle can read the key without actor hops.
+// `bool(forKey:)` alone would read an unset key as false, so read the object and default to on.
 enum LiveActivityPreference {
     static let key = "liveActivityEnabled"
 

@@ -57,8 +57,8 @@ struct ScheduleHeaderView: View {
         .padding(.bottom, 12)
     }
 
-    /// Driven by a value that flips on both appear and disappear, so the
-    /// animation restarts after a tab switch instead of freezing on one frame.
+    /// Driven by a value that flips on both appear and disappear,
+    /// so the animation restarts after a tab switch instead of freezing on one frame.
     private func blinkDot(color: Color) -> some View {
         Circle()
             .fill(color)
@@ -67,13 +67,11 @@ struct ScheduleHeaderView: View {
                 .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
                 value: isDimmed
             )
-            // Frame on the outside, so the slot stays a fixed 6x6 whatever the
-            // animation does inside and can't nudge the centred header.
+            // Frame on the outside so the slot stays a fixed 6x6 whatever the animation does inside and can't nudge the centred header.
             .frame(width: 6, height: 6)
             .task {
-                // Started from onAppear, a repeatForever animation captures the
-                // insertion's geometry change too and oscillates it forever —
-                // that's what made the dot drift sideways. Let layout settle.
+                // Started from onAppear, a repeatForever animation captures the insertion's geometry change too
+                // and oscillates it forever which made the dot move left and right infinitely. Let layout settle.
                 try? await Task.sleep(for: .milliseconds(50))
                 isDimmed = true
             }

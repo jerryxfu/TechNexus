@@ -41,8 +41,6 @@ private struct RobotInfoCard: View {
     private let robot = RobotCheatSheet.defaultRobot
 
     var body: some View {
-        // Plain on every version: the system supplies the press feedback,
-        // so there's nothing to hand-roll and nothing to flash.
         cardButton.buttonStyle(.plain)
     }
 

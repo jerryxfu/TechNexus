@@ -10,7 +10,7 @@ struct ScheduleActivityAttributes: ActivityAttributes {
         var blueTeams: [String]
         var startTimeEpoch: Int64  // ms
 
-        // Highlighted teams summary — "Team: status" pairs
+        // Highlighted teams summary "Team: status" pairs
         // Example: ["3990": "On deck", "1815": "Queuing soon"]
         var highlightedTeamsSummary: [HighlightedTeamInfo]
 

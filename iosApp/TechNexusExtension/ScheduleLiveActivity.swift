@@ -4,7 +4,7 @@ import WidgetKit
 
 struct ScheduleLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: ScheduleActivityAttributes.self) { context in
+        ActivityConfigurationS(for: ScheduleActivityAttributes.self) { context in
             ScheduleLockScreenView(
                 state: context.state,
                 isStale: context.isStale
@@ -23,76 +23,92 @@ struct ScheduleLiveActivity: Widget {
             )
 
             return DynamicIsland {
-                // Leading and trailing flank the camera and get equal widths.
-                // Everything wide goes in .bottom, which spans the full width —
-                // .center is only about as wide as the camera cutout.
+                // Left and right of the dynamic island is the field status and time.
+                // Below that is the main label and match timer. Then under that are the teams.
                 DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(context.state.matchLabel)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        HStack(spacing: 3) {
-                            if context.isStale {
-                                Image(systemName: LiveActivityFormat.staleIcon)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Text(context.state.matchStatus)
-                                .font(.caption)
-                                .foregroundStyle(statusColor)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
+                    HStack(spacing: 4) {
+                        if context.isStale {
+                            Image(systemName: LiveActivityFormat.staleIcon)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
+                        Text(context.state.matchStatus)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(statusColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
+                    // Clears the 44pt corner curve, which was clipping glyphs.
+                    .padding(.leading, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 1) {
-                        Text(
-                            timerInterval: timer.range,
-                            countsDown: timer.countsDown
+                    Text(
+                        LiveActivityFormat.timeLabel(
+                            epoch: context.state.startTimeEpoch,
+                            status: context.state.matchStatus
                         )
-                        .font(.system(.title3, design: .monospaced))
-                        .fontWeight(.semibold)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .foregroundStyle(
-                            context.isStale
-                                ? .gray : (timer.isOverdue ? .orange : .primary)
-                        )
-
-                        Text(
-                            LiveActivityFormat.timeLabel(
-                                epoch: context.state.startTimeEpoch,
-                                status: context.state.matchStatus
-                            )
-                        )
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                    }
-                }
-
-                DynamicIslandExpandedRegion(.center) {
-                    VStack(spacing: 2) {
-                        allianceRow(context.state.redTeams, color: .red)
-                        allianceRow(context.state.blueTeams, color: .blue)
-                    }
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .padding(.trailing, 10)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
 
                 DynamicIslandExpandedRegion(.bottom) {
-                    // Highlighted teams need full width, which only .bottom has.
-                    if !context.state.highlightedTeamsSummary.isEmpty {
-                        highlightedTeamsRow(
-                            context.state.highlightedTeamsSummary,
-                            isStale: context.isStale
-                        )
-                        .padding(.top, 2)
+                    VStack(spacing: 8) {
+                        HStack(alignment: .center, spacing: 10) {
+                            Text(context.state.matchLabel)
+                                .font(.headline)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            VStack(spacing: 3) {
+                                allianceRow(
+                                    context.state.redTeams,
+                                    color: .red
+                                )
+                                allianceRow(
+                                    context.state.blueTeams,
+                                    color: .blue
+                                )
+                            }
+                            .fixedSize()
+
+                            Text(
+                                timerInterval: timer.range,
+                                countsDown: timer.countsDown
+                            )
+                            .font(.system(.title2, design: .monospaced))
+                            .fontWeight(.semibold)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            // The timer reserves width for its longest value.
+                            // Trailing alignment makes it grow leftward instead of parking the digits with a gap on the right.
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(
+                                context.isStale
+                                    ? .gray
+                                    : (timer.isOverdue ? .orange : .primary)
+                            )
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+
+                        if !context.state.highlightedTeamsSummary.isEmpty {
+                            highlightedTeamsRow(
+                                context.state.highlightedTeamsSummary,
+                                isStale: context.isStale
+                            )
+                        }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
                 }
                 // MARK: - Compact view
             } compactLeading: {
@@ -116,6 +132,7 @@ struct ScheduleLiveActivity: Widget {
                     } else {
                         // Beyond an hour out a live countdown reads H:MM:SS and
                         // truncates in ~60pt. Clock time is shorter and more useful.
+                        // TODO: we still want to keep seconds.
                         Text(
                             LiveActivityFormat.time(
                                 epoch: context.state.startTimeEpoch
@@ -127,10 +144,13 @@ struct ScheduleLiveActivity: Widget {
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.semibold)
                 .monospacedDigit()
+                .lineLimit(1)
+                // Same reason as the expanded timer: Text(timerInterval:) reserves width for its longest value,
+                // so without this the digits sit centred and leave a gap on the right.
+                .multilineTextAlignment(.trailing)
                 .frame(maxWidth: 60, alignment: .trailing)
             } minimal: {
-                // Symbol varies by status, not just its tint — this region has
-                // room for one glyph and colour alone isn't accessible.
+                // Symbol varies by status, not just its tint. This region has room for one glyph and colour alone isn't accessible.
                 Image(
                     systemName: context.isStale
                         ? LiveActivityFormat.staleIcon
@@ -155,12 +175,12 @@ struct ScheduleLiveActivity: Widget {
             // can blank the whole activity.
             ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
                 Text(team)
-                    .font(.caption)
+                    .font(.subheadline)
                     .fontWeight(.medium)
                     .foregroundStyle(color)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                    .frame(width: 32)
+                    .frame(width: 38)
             }
         }
     }

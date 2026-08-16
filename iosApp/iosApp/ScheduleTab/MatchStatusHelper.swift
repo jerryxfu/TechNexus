@@ -27,8 +27,7 @@ enum MatchStatusHelper {
         return nowMs > estimatedEnd
     }
 
-    /// The "current" on-field start time — the latest start time among
-    /// "On field" matches.
+    /// The "current" on-field start time aka the latest start time among "On field" matches.
     static func currentOnFieldStart(in matches: [Match]) -> Int64? {
         matches
             .filter { $0.status.lowercased() == "on field" }
@@ -85,8 +84,7 @@ enum MatchStatusHelper {
         return nil
     }
 
-    /// Canonical label, colour and icon for a status. Every iOS surface reads
-    /// from here so they can't drift apart.
+    /// Canonical label, colour and icon for a status. Every iOS surface reads from here so they can't drift apart.
     static func display(
         for status: String,
         isCurrentlyPlaying: Bool = false
