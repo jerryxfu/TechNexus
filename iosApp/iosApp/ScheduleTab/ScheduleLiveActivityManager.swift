@@ -31,6 +31,11 @@ final class ScheduleLiveActivityManager {
             return
         }
 
+        guard LiveActivityPreference.isEnabled else {
+            await end()
+            return
+        }
+
         let state = buildContentState(
             event: event,
             highlightedTeams: highlightedTeams
@@ -50,7 +55,9 @@ final class ScheduleLiveActivityManager {
 
         // If one exists, update; otherwise create
         if let activity = currentActivity {
-            await activity.update(.init(state: state, staleDate: nil))
+            await activity.update(
+                .init(state: state, staleDate: Self.staleDate())
+            )
         } else {
             do {
                 let attributes = ScheduleActivityAttributes(
@@ -58,7 +65,7 @@ final class ScheduleLiveActivityManager {
                 )
                 currentActivity = try Activity.request(
                     attributes: attributes,
-                    content: .init(state: state, staleDate: nil),
+                    content: .init(state: state, staleDate: Self.staleDate()),
                     pushType: nil
                 )
                 print("[LiveActivity] Started for \(state.matchLabel)")
@@ -66,6 +73,12 @@ final class ScheduleLiveActivityManager {
                 print("[LiveActivity] Failed to start: \(error)")
             }
         }
+    }
+
+    /// Past this point the system dims the card rather than presenting data
+    /// that may no longer be true.
+    private static func staleDate() -> Date {
+        Date().addingTimeInterval(5 * 60)
     }
 
     func end() async {
@@ -80,7 +93,12 @@ final class ScheduleLiveActivityManager {
         event: Event,
         highlightedTeams: [String: Color]
     ) -> ScheduleActivityAttributes.ContentState? {
-        guard let latest = latestMatch(in: event) else { return nil }
+        guard
+            let latest = MatchStatusHelper.latestMatch(
+                in: event,
+                skippingFinished: true
+            )
+        else { return nil }
 
         let redTeams = teamList(latest.redTeams)
         let blueTeams = teamList(latest.blueTeams)
@@ -101,32 +119,6 @@ final class ScheduleLiveActivityManager {
         )
     }
 
-    private func latestMatch(in event: Event) -> Match? {
-        let currentOnFieldStart = MatchStatusHelper.currentOnFieldStart(
-            in: event.matches
-        )
-
-        // Prefer a currently playing match
-        if let playing = event.matches.first(where: {
-            MatchStatusHelper.isCurrentlyPlaying(
-                $0,
-                currentOnFieldStart: currentOnFieldStart
-            )
-        }) {
-            return playing
-        }
-
-        // Otherwise walk priority order
-        let priority = ["on deck", "now queuing", "queuing soon"]
-        for status in priority {
-            if let match = event.matches.first(where: {
-                $0.status.lowercased() == status
-            }) {
-                return match
-            }
-        }
-        return nil
-    }
 
     private func statusText(for match: Match, in event: Event) -> String {
         // Must be the full match list: passing [match] made the
@@ -237,5 +229,16 @@ final class ScheduleLiveActivityManager {
             Int(green * 255),
             Int(blue * 255)
         )
+    }
+}
+
+/// Deliberately outside the @MainActor class so the Settings toggle can read
+/// the key without actor hops. `bool(forKey:)` alone would read an unset key
+/// as false, so read the object and default to on.
+enum LiveActivityPreference {
+    static let key = "liveActivityEnabled"
+
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? true
     }
 }

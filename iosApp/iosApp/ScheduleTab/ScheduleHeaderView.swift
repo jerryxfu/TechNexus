@@ -4,7 +4,7 @@ import SwiftUI
 struct ScheduleHeaderView: View {
     let event: Event?
     @ObservedObject private var network = NetworkMonitor.shared
-    @State private var blinkOn = true
+    @State private var isDimmed = false
 
     var body: some View {
         VStack(spacing: 4) {
@@ -12,7 +12,9 @@ struct ScheduleHeaderView: View {
                 Text(event.eventKey)
                     .font(.system(size: 24, weight: .bold))
 
-                if let latest = latestMatch(in: event) {
+                if let latest = MatchStatusHelper.latestMatch(in: event) {
+                    let info = MatchStatusHelper.display(for: latest, in: event)
+
                     HStack(spacing: 6) {
                         Text(latest.label)
                             .fontWeight(.semibold)
@@ -20,24 +22,11 @@ struct ScheduleHeaderView: View {
                         Text("·")
                             .foregroundStyle(.secondary)
                         HStack(spacing: 4) {
-                            Text(latest.status)
+                            Text(info.text)
                                 .fontWeight(.semibold)
-                                .foregroundStyle(statusColor(latest.status))
+                                .foregroundStyle(info.color)
                             if network.isConnected {
-                                Circle()
-                                    .fill(statusColor(latest.status))
-                                    .frame(width: 6, height: 6)
-                                    .opacity(blinkOn ? 1.0 : 0.25)
-                                    .onAppear {
-                                        withAnimation(
-                                            .easeInOut(duration: 0.8)
-                                                .repeatForever(
-                                                    autoreverses: true
-                                                )
-                                        ) {
-                                            blinkOn = false
-                                        }
-                                    }
+                                blinkDot(color: info.color)
                             }
                         }
                     }
@@ -63,35 +52,18 @@ struct ScheduleHeaderView: View {
         .padding(.bottom, 12)
     }
 
-    private func latestMatch(in event: Event) -> Match? {
-        let onFieldMatches = event.matches.filter {
-            $0.status.lowercased() == "on field"
-        }
-        if let currentOnField = onFieldMatches.max(by: {
-            $0.times.estimatedStartTime < $1.times.estimatedStartTime
-        }) {
-            return currentOnField
-        }
-
-        let priority = ["on deck", "now queuing", "queuing soon"]
-        for status in priority {
-            if let match = event.matches.first(where: {
-                $0.status.lowercased() == status
-            }) {
-                return match
-            }
-        }
-
-        return nil
-    }
-
-    private func statusColor(_ status: String) -> Color {
-        switch status.lowercased() {
-        case "on field": return .green
-        case "on deck": return .blue
-        case "now queuing": return .orange
-        case "queuing soon": return .purple
-        default: return .secondary
-        }
+    /// Driven by a value that flips on both appear and disappear, so the
+    /// animation restarts after a tab switch instead of freezing on one frame.
+    private func blinkDot(color: Color) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: 6, height: 6)
+            .opacity(isDimmed ? 0.25 : 1.0)
+            .animation(
+                .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
+                value: isDimmed
+            )
+            .onAppear { isDimmed = true }
+            .onDisappear { isDimmed = false }
     }
 }

@@ -1,22 +1,32 @@
 import Foundation
 
 enum TimeFormatting {
-    /// Format an epoch (in milliseconds) as a short time string like "3:45 PM"
-    static func formatTime(_ epochMs: Int64) -> String {
-        let date = Date(timeIntervalSince1970: Double(epochMs) / 1000.0)
+    // Cached: DateFormatter is expensive to build, and these are called once
+    // per match on every 15s refresh. Only used from the main actor.
+    private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
         formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private static let dateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    /// Format an epoch (in milliseconds) as a short time string like "3:45 PM"
+    static func formatTime(_ epochMs: Int64) -> String {
+        let date = Date(timeIntervalSince1970: Double(epochMs) / 1000.0)
+        return timeFormatter.string(from: date)
     }
 
     /// Format an epoch (in milliseconds) as a short date+time string
     static func formatDateTime(_ epochMs: Int64) -> String {
         let date = Date(timeIntervalSince1970: Double(epochMs) / 1000.0)
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return dateTimeFormatter.string(from: date)
     }
 
     /// Relative time description like "in 5m", "in 1h 20m", "3m ago", "now"

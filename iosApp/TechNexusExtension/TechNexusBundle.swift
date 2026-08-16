@@ -4,7 +4,6 @@ import WidgetKit
 @main
 struct TechNexusBundle: WidgetBundle {
     var body: some Widget {
-        TechNexusLiveActivity()
         ScheduleLiveActivity()
     }
 }

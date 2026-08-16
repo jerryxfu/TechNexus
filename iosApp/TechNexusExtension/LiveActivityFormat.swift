@@ -1,0 +1,133 @@
+import SwiftUI
+
+/// Shared by the Dynamic Island and the Lock Screen presentations.
+///
+/// Note this deliberately does *not* share `MatchStatusHelper` from the app
+/// target. That file imports ComposeApp for the `Match` type, which the
+/// extension doesn't link and it maps *raw* API statuses, whereas everything
+/// here maps the already-resolved display strings the manager sends over.
+enum LiveActivityFormat {
+
+    // MARK: - Colour
+
+    static func color(hex: String) -> Color? {
+        var sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if sanitized.hasPrefix("#") {
+            sanitized.removeFirst()
+        }
+
+        guard sanitized.count == 6, let value = UInt64(sanitized, radix: 16)
+        else {
+            return nil
+        }
+
+        let red = Double((value & 0xFF00_00) >> 16) / 255.0
+        let green = Double((value & 0x00_FF_00) >> 8) / 255.0
+        let blue = Double(value & 0x00_00_FF) / 255.0
+        return Color(red: red, green: green, blue: blue)
+    }
+
+    static func statusColor(_ status: String) -> Color {
+        switch status.lowercased() {
+        case "on field": return .green
+        case "on deck": return .blue
+        case "now queuing": return .orange
+        case "queuing soon": return .purple
+        default: return .gray
+        }
+    }
+
+    /// SF Symbol for a status. The minimal presentation has room for one glyph
+    /// and nothing else, so it can't rely on colour alone.
+    static func statusIcon(_ status: String) -> String {
+        switch status.lowercased() {
+        case "on field": return "flag.fill"
+        case "on deck": return "clock.fill"
+        case "now queuing": return "figure.walk"
+        case "queuing soon": return "hourglass"
+        default: return "circle"
+        }
+    }
+
+    // MARK: - Time
+
+    // Cached: the Live Activity re-renders on every update.
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    static func time(epoch: Int64) -> String {
+        timeFormatter.string(
+            from: Date(timeIntervalSince1970: Double(epoch) / 1000.0)
+        )
+    }
+
+    /// Clamped to now so a past scheduled time renders 0:00 rather than forming an invalid range.
+    static func countdownRange(epoch: Int64) -> ClosedRange<Date> {
+        let now = Date.now
+        let start = Date(timeIntervalSince1970: Double(epoch) / 1000.0)
+        return now...max(start, now)
+    }
+
+    static func relative(epoch: Int64) -> String {
+        let seconds = Int(
+            Date(timeIntervalSince1970: Double(epoch) / 1000.0)
+                .timeIntervalSinceNow
+        )
+        if abs(seconds) < 60 { return "now" }
+
+        let totalMinutes = abs(seconds) / 60
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        let prefix = seconds > 0 ? "in " : ""
+        let suffix = seconds > 0 ? "" : " ago"
+
+        if hours > 0 {
+            let body = minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+            return "\(prefix)\(body)\(suffix)"
+        }
+        return "\(prefix)\(minutes)m\(suffix)"
+    }
+
+    // MARK: - Labels
+
+    /// "Qualification 15" -> "Q15", "Practice 4" -> "P4"
+    static func compactLabel(_ label: String) -> String {
+        let parts = label.split(separator: " ")
+        if parts.count >= 2, let first = parts.first?.first {
+            return "\(first)\(parts.last ?? "")"
+        }
+        return String(label.prefix(3))
+    }
+
+    static func statusWithEta(_ info: HighlightedTeamInfo) -> String {
+        guard let epoch = info.statusEtaEpoch else { return info.status }
+        let relativeText = relative(epoch: epoch)
+        return relativeText == "now"
+            ? "\(info.status) now" : "\(info.status) \(relativeText)"
+    }
+
+    /// A team queuing more than ten minutes out is de-emphasised, since it
+    /// isn't actionable yet.
+    static func highlightedPresentation(_ info: HighlightedTeamInfo)
+        -> (text: String, color: Color)
+    {
+        guard
+            info.status.lowercased() == "queuing soon",
+            let epoch = info.statusEtaEpoch
+        else {
+            return (statusWithEta(info), statusColor(info.status))
+        }
+
+        let seconds = Date(timeIntervalSince1970: Double(epoch) / 1000.0)
+            .timeIntervalSinceNow
+        if seconds > 10 * 60 {
+            return ("Queuing \(relative(epoch: epoch))", .gray)
+        }
+
+        return (statusWithEta(info), statusColor(info.status))
+    }
+}

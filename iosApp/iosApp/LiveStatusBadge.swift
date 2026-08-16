@@ -6,7 +6,7 @@ struct LiveStatusBadge: View {
     let icon: String?
     let isLive: Bool
 
-    @State private var blinkOn = true
+    @State private var isDimmed = false
 
     init(text: String, color: Color, icon: String? = nil, isLive: Bool) {
         self.text = text
@@ -26,19 +26,18 @@ struct LiveStatusBadge: View {
                 .font(.system(size: 11, weight: .medium))
 
             if isLive {
+                // Flips on both appear and disappear so the animation restarts after a tab switch instead of freezing on one frame.
                 Circle()
                     .fill(color)
                     .frame(width: 6, height: 6)
-                    .opacity(blinkOn ? 1.0 : 0.25)
-                    .onAppear {
-                        withAnimation(
-                            .easeInOut(duration: 0.8).repeatForever(
-                                autoreverses: true
-                            )
-                        ) {
-                            blinkOn = false
-                        }
-                    }
+                    .opacity(isDimmed ? 0.25 : 1.0)
+                    .animation(
+                        .easeInOut(duration: 0.8)
+                            .repeatForever(autoreverses: true),
+                        value: isDimmed
+                    )
+                    .onAppear { isDimmed = true }
+                    .onDisappear { isDimmed = false }
             }
         }
         .foregroundStyle(color)

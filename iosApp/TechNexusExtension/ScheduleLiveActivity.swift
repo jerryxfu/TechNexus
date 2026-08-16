@@ -2,23 +2,6 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-private func colorFromHex(_ hex: String) -> Color? {
-    var sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-    if sanitized.hasPrefix("#") {
-        sanitized.removeFirst()
-    }
-
-    guard sanitized.count == 6, let value = UInt64(sanitized, radix: 16)
-    else {
-        return nil
-    }
-
-    let red = Double((value & 0xFF0000) >> 16) / 255.0
-    let green = Double((value & 0x00FF00) >> 8) / 255.0
-    let blue = Double(value & 0x0000FF) / 255.0
-    return Color(red: red, green: green, blue: blue)
-}
-
 struct ScheduleLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ScheduleActivityAttributes.self) { context in
@@ -34,7 +17,9 @@ struct ScheduleLiveActivity: Widget {
                         Text(context.state.matchStatus)
                             .font(.caption2)
                             .foregroundStyle(
-                                statusColor(context.state.matchStatus)
+                                LiveActivityFormat.statusColor(
+                                    context.state.matchStatus
+                                )
                             )
                     }
                 }
@@ -42,7 +27,7 @@ struct ScheduleLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.trailing) {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(
-                            timerInterval: countdownRange(
+                            timerInterval: LiveActivityFormat.countdownRange(
                                 epoch: context.state.startTimeEpoch
                             ),
                             countsDown: true
@@ -53,7 +38,9 @@ struct ScheduleLiveActivity: Widget {
                         .frame(maxWidth: 80, alignment: .trailing)
 
                         Text(
-                            formatTime(epoch: context.state.startTimeEpoch)
+                            LiveActivityFormat.time(
+                                epoch: context.state.startTimeEpoch
+                            )
                         )
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
@@ -65,17 +52,11 @@ struct ScheduleLiveActivity: Widget {
                     VStack(alignment: .leading, spacing: 2) {
                         // Teams line
                         HStack(spacing: 6) {
-                            teamsLine(
-                                context.state.redTeams,
-                                color: .red
-                            )
+                            teamsLine(context.state.redTeams, color: .red)
                             Text("vs")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
-                            teamsLine(
-                                context.state.blueTeams,
-                                color: .blue
-                            )
+                            teamsLine(context.state.blueTeams, color: .blue)
                         }
 
                         // Highlighted teams
@@ -89,13 +70,17 @@ struct ScheduleLiveActivity: Widget {
                 }
                 // MARK: - Compact view
             } compactLeading: {
-                Text(compactLabel(context.state.matchLabel))
+                Text(LiveActivityFormat.compactLabel(context.state.matchLabel))
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundStyle(statusColor(context.state.matchStatus))
+                    .foregroundStyle(
+                        LiveActivityFormat.statusColor(
+                            context.state.matchStatus
+                        )
+                    )
             } compactTrailing: {
                 Text(
-                    timerInterval: countdownRange(
+                    timerInterval: LiveActivityFormat.countdownRange(
                         epoch: context.state.startTimeEpoch
                     ),
                     countsDown: true
@@ -105,19 +90,24 @@ struct ScheduleLiveActivity: Widget {
                 .monospacedDigit()
                 .frame(maxWidth: 60, alignment: .trailing)
             } minimal: {
-                Image(systemName: "flag.fill")
-                    .foregroundStyle(statusColor(context.state.matchStatus))
+                Image(
+                    systemName: LiveActivityFormat.statusIcon(
+                        context.state.matchStatus
+                    )
+                )
+                .foregroundStyle(
+                    LiveActivityFormat.statusColor(context.state.matchStatus)
+                )
             }
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Subviews
 
     private func teamsLine(_ teams: [String], color: Color) -> some View {
         HStack(spacing: 3) {
-            // Index-keyed on purpose: team strings are not unique once
-            // teamList() maps missing entries to "N/A", and duplicate IDs
-            // can blank the whole activity.
+            // Index-keyed on purpose: team strings are not unique once teamList() maps missing entries to "N/A",
+            // and duplicate IDs can blank the whole activity.
             ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
                 Text(team)
                     .font(.system(size: 11, weight: .medium))
@@ -131,10 +121,13 @@ struct ScheduleLiveActivity: Widget {
     {
         HStack(spacing: 3) {
             ForEach(teams, id: \.team) { info in
-                let presentation = highlightedStatusPresentation(info)
+                let presentation = LiveActivityFormat
+                    .highlightedPresentation(info)
+                let tint = LiveActivityFormat.color(hex: info.colorHex) ?? .yellow
+
                 HStack(spacing: 2) {
                     Circle()
-                        .fill(colorFromHex(info.colorHex) ?? .yellow)
+                        .fill(tint)
                         .frame(width: 4, height: 4)
                     Text("\(info.team) · \(presentation.text)")
                         .font(.system(size: 9))
@@ -144,94 +137,10 @@ struct ScheduleLiveActivity: Widget {
                 }
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
-                .background(
-                    (colorFromHex(info.colorHex) ?? .yellow).opacity(0.15)
-                )
+                .background(tint.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 4))
             }
         }
-    }
-
-    private func countdownRange(epoch: Int64) -> ClosedRange<Date> {
-        let now = Date.now
-        let start = Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-        // Clamp to now so past scheduled times render as 0:00 instead of counting up.
-        let end = max(start, now)
-        return now...end
-    }
-
-    private func statusWithEta(_ info: HighlightedTeamInfo) -> String {
-        guard let epoch = info.statusEtaEpoch else { return info.status }
-        let relative = relativeTime(epoch: epoch)
-        return relative == "now"
-            ? "\(info.status) now" : "\(info.status) \(relative)"
-    }
-
-    private func highlightedStatusPresentation(_ info: HighlightedTeamInfo)
-        -> (text: String, color: Color)
-    {
-        guard
-            info.status.lowercased() == "queuing soon",
-            let epoch = info.statusEtaEpoch
-        else {
-            return (statusWithEta(info), statusColor(info.status))
-        }
-
-        let seconds = Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-            .timeIntervalSinceNow
-        if seconds > 10 * 60 {
-            let relative = relativeTime(epoch: epoch)
-            return ("queuing \(relative)", .gray)
-        }
-
-        return (statusWithEta(info), statusColor(info.status))
-    }
-
-    private func relativeTime(epoch: Int64) -> String {
-        let seconds = Int(
-            Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-                .timeIntervalSinceNow
-        )
-        if abs(seconds) < 60 { return "now" }
-
-        let totalMinutes = abs(seconds) / 60
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        let prefix = seconds > 0 ? "in " : ""
-        let suffix = seconds > 0 ? "" : " ago"
-
-        if hours > 0 {
-            let body = minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
-            return "\(prefix)\(body)\(suffix)"
-        }
-        return "\(prefix)\(minutes)m\(suffix)"
-    }
-
-    private func formatTime(epoch: Int64) -> String {
-        let date = Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-
-    private func statusColor(_ status: String) -> Color {
-        switch status.lowercased() {
-        case "on field": return .green
-        case "on deck": return .blue
-        case "now queuing": return .orange
-        case "queuing soon": return .purple
-        default: return .gray
-        }
-    }
-
-    private func compactLabel(_ label: String) -> String {
-        // Trim long labels like "Qualification 15" -> "Q15"
-        let parts = label.split(separator: " ")
-        if parts.count >= 2, let first = parts.first?.first {
-            return "\(first)\(parts.last ?? "")"
-        }
-        return String(label.prefix(3))
     }
 }
 
@@ -249,14 +158,16 @@ private struct ScheduleLockScreenView: View {
                         .font(.headline)
                     Text(state.matchStatus)
                         .font(.caption)
-                        .foregroundStyle(statusColor(state.matchStatus))
+                        .foregroundStyle(
+                            LiveActivityFormat.statusColor(state.matchStatus)
+                        )
                 }
 
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(
-                        timerInterval: countdownRange(
+                        timerInterval: LiveActivityFormat.countdownRange(
                             epoch: state.startTimeEpoch
                         ),
                         countsDown: true
@@ -264,11 +175,10 @@ private struct ScheduleLockScreenView: View {
                     .font(.system(.headline, design: .monospaced))
                     .monospacedDigit()
 
-                    Text(formatTime(epoch: state.startTimeEpoch))
+                    Text(LiveActivityFormat.time(epoch: state.startTimeEpoch))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
             }
 
             // Teams
@@ -285,10 +195,16 @@ private struct ScheduleLockScreenView: View {
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.tertiary)
                     ForEach(state.highlightedTeamsSummary, id: \.team) { info in
-                        let presentation = highlightedStatusPresentation(info)
+                        let presentation = LiveActivityFormat
+                            .highlightedPresentation(info)
+
                         HStack(spacing: 5) {
                             Circle()
-                                .fill(colorFromHex(info.colorHex) ?? .yellow)
+                                .fill(
+                                    LiveActivityFormat.color(
+                                        hex: info.colorHex
+                                    ) ?? .yellow
+                                )
                                 .frame(width: 5, height: 5)
                             Text(info.team)
                                 .font(.system(size: 11, weight: .semibold))
@@ -334,77 +250,5 @@ private struct ScheduleLockScreenView: View {
         .padding(5)
         .background(color.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func formatTime(epoch: Int64) -> String {
-        let date = Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-
-    private func countdownRange(epoch: Int64) -> ClosedRange<Date> {
-        let now = Date.now
-        let start = Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-        let end = max(start, now)
-        return now...end
-    }
-
-    private func statusColor(_ status: String) -> Color {
-        switch status.lowercased() {
-        case "on field": return .green
-        case "on deck": return .blue
-        case "now queuing": return .orange
-        case "queuing soon": return .purple
-        default: return .gray
-        }
-    }
-
-    private func statusWithEta(_ info: HighlightedTeamInfo) -> String {
-        guard let epoch = info.statusEtaEpoch else { return info.status }
-        let relative = relativeTime(epoch: epoch)
-        return relative == "now"
-            ? "\(info.status) now" : "\(info.status) \(relative)"
-    }
-
-    private func highlightedStatusPresentation(_ info: HighlightedTeamInfo)
-        -> (text: String, color: Color)
-    {
-        guard
-            info.status.lowercased() == "queuing soon",
-            let epoch = info.statusEtaEpoch
-        else {
-            return (statusWithEta(info), statusColor(info.status))
-        }
-
-        let seconds = Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-            .timeIntervalSinceNow
-        if seconds > 10 * 60 {
-            let relative = relativeTime(epoch: epoch)
-            return ("Queuing \(relative)", .gray)
-        }
-
-        return (statusWithEta(info), statusColor(info.status))
-    }
-
-    private func relativeTime(epoch: Int64) -> String {
-        let seconds = Int(
-            Date(timeIntervalSince1970: Double(epoch) / 1000.0)
-                .timeIntervalSinceNow
-        )
-        if abs(seconds) < 60 { return "now" }
-
-        let totalMinutes = abs(seconds) / 60
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        let prefix = seconds > 0 ? "in " : ""
-        let suffix = seconds > 0 ? "" : " ago"
-
-        if hours > 0 {
-            let body = minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
-            return "\(prefix)\(body)\(suffix)"
-        }
-        return "\(prefix)\(minutes)m\(suffix)"
     }
 }

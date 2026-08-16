@@ -60,21 +60,10 @@ struct MatchCardView: View {
     }
 
     private var statusInfo: (text: String, color: Color, icon: String) {
-        if isCurrentlyPlaying {
-            return ("On field", .green, "flag.fill")
-        }
-        switch match.status.lowercased() {
-        case "on field":
-            return ("Done", .gray, "checkmark.circle.fill")
-        case "on deck":
-            return ("On deck", .blue, "clock.fill")
-        case "now queuing":
-            return ("Now queuing", .orange, "figure.walk")
-        case "queuing soon":
-            return ("Queuing soon", .purple, "hourglass")
-        default:
-            return (match.status, .secondary, "circle")
-        }
+        MatchStatusHelper.display(
+            for: match.status,
+            isCurrentlyPlaying: isCurrentlyPlaying
+        )
     }
 
     /// True if the match is more than 30 minutes away from its queuing time.

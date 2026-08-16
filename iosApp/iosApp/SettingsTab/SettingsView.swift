@@ -8,6 +8,8 @@ struct SettingsView: View {
     @State private var savedTeamNumber = ""
     @State private var isSaved = false
     @State private var resetTask: Task<Void, Never>?
+    @AppStorage(LiveActivityPreference.key)
+    private var liveActivityEnabled = true
     @FocusState private var focusedField: Field?
 
     private enum Field {
@@ -23,7 +25,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     generalSection
-                    pitSection
+                    liveActivitySection
                 }
                 .padding(16)
             }
@@ -36,6 +38,12 @@ struct SettingsView: View {
             .animation(.default, value: isSaved)
         }
         .onAppear(perform: loadSettings)
+        // task(id:) rather than onChange — one API that works on iOS 16.
+        .task(id: liveActivityEnabled) {
+            if !liveActivityEnabled {
+                await ScheduleLiveActivityManager.shared.end()
+            }
+        }
     }
 
     // MARK: - Sections
@@ -61,26 +69,30 @@ struct SettingsView: View {
                 .focused($focusedField, equals: .teamNumber)
                 .keyboardType(.numberPad)
             }
-            Text(
-                "Event ID determines which schedule is loaded. Team number doesn't do anything yet."
-            )
+            Text("Event ID determines which schedule is loaded.")
             .font(.footnote)
             .foregroundStyle(.tertiary)
             .padding(.horizontal, 4)
         }
     }
 
-    private var pitSection: some View {
+    private var liveActivitySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(title: "Pit", icon: "hammer")
+            SectionTitle(title: "Live Activity", icon: "bolt.fill")
             SettingsCard {
-                Text("Nothing here yet")
-                    .font(.subheadline)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                Toggle(isOn: $liveActivityEnabled) {
+                    Text("Show on Lock Screen")
+                        .font(.subheadline)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
             }
+            Text(
+                "Shows the current match and queue status on the Lock Screen and Dynamic Island."
+            )
+            .font(.footnote)
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 4)
         }
     }
 
