@@ -1,6 +1,6 @@
 # TechNexus — handoff
 
-Last updated 16 Aug 2026, at commit `cd1d56e` plus uncommitted server, shared and Settings work.
+Last updated 17 Aug 2026. The iOS app now builds and runs; the Swift toolchain blocker is resolved.
 
 The single handoff document for this project. `README.md` covers building and running; `Style_iOS.md` covers SwiftUI
 conventions. This covers state, blockers, decisions and the things that were expensive to learn.
@@ -15,17 +15,17 @@ Las Vegas regional against a live event.
 
 It cannot be submitted yet. One blocker is outside the code; the rest is a list of finite tasks.
 
-| Area                   | State                                           |
-|------------------------|-------------------------------------------------|
-| Schedule tab           | Works, simulator, demo events                   |
-| Live Activity          | Renders on simulator. **Never run on hardware** |
-| Pit tab                | Robot cheat sheet only                          |
-| Settings               | Works; event picker is new and uncompiled       |
-| Stats / TechBotics tab | Commented out in `ContentView`                  |
-| Server                 | All routes verified locally                     |
-| `/batteries`           | Fixed but never run against a real database     |
-| Notifications          | Not started                                     |
-| Device builds          | Blocked, see below                              |
+| Area                   | State                                          |
+|------------------------|------------------------------------------------|
+| Schedule tab           | Works, simulator, demo events                  |
+| Live Activity          | Lock Screen + Dynamic Island OK on iOS 27 sim  |
+| Pit tab                | Robot cheat sheet only                         |
+| Settings               | Works; picker compiles, blocked on backend 404 |
+| Stats / TechBotics tab | Commented out in `ContentView`                 |
+| Server                 | All routes verified locally                    |
+| `/batteries`           | Fixed but never run against a real database    |
+| Notifications          | Not started                                    |
+| Device builds          | Blocked, see below                             |
 
 ---
 
@@ -120,6 +120,28 @@ last poll"** — not string comparison against `status`.
 
 ## Recent work
 
+### iOS and toolchain, 17 Aug
+
+- **Resolved the Swift module blocker.** Two Xcode installs: `xcode-select` pointed at `/Applications/Xcode.app`
+  (stable, Swift 6.3.3) while the project was being run from Xcode 27 beta 5 (Swift 6.4). Gradle built the SKIE Swift
+  shim with one compiler, Xcode consumed it with the other. `Xcode-beta.app` moved from `~/Downloads` to
+  `/Applications`, `xcode-select -s` pointed at it, caches cleared, framework relinked. Full note under *Gotchas*.
+- **`@Throws(Throwable::class)` on `getEvents()`** in `Backend.kt`. It was the one backend call designed to throw rather
+  than return null, but without the annotation the exception never reached Swift and the picker span forever.
+- **Index-keyed the team `ForEach`s** in `MatchCardView.swift` (three sites). `teamList()` maps missing entries to
+  `"N/A"`, so `id: \.self` produced duplicate IDs and undefined row behaviour. `ScheduleLiveActivity.swift` already did
+  this correctly; the fix was never ported. `TimingCarouselView` and `HighlightTeamsBar` are fine — their collections
+  are unique by construction.
+- **Confirmed on the iOS 27 simulator:** Live Activity lifecycle, Lock Screen and Dynamic Island rendering, and
+  `List<EventSummary>` bridging to `[EventSummary]`.
+
+Still open on the signing config: both Debug configs carry an unqualified `CODE_SIGN_IDENTITY = "Apple Development"`,
+which applies to the simulator SDK too and makes Xcode try to resolve team `HWB4Y653YR` for simulator runs. Xcode's
+default there is `-` (Sign to Run Locally), needing no account. Harmless today — simulator builds proceed anyway — but
+it's noise on every build and wants `[sdk=iphoneos*]` scoping.
+
+Unrelated, for Samy: the Android build warns that AGP 9.0.1 is untested against compileSdk 37.0.
+
 ### Server, this session
 
 - **`Config.kt`** (new). All configuration from the environment: `NEXUS_API_KEY`,
@@ -200,10 +222,22 @@ GET /event/2026daly    404 "2026daly does not exist."
 
 Startup logs `Database connected, schema verified`.
 
-**Not verified:** anything in Xcode. The iOS changes have never been compiled. The specific untested seam is whether
-`List<EventSummary>` bridges to Swift as
-`[EventSummary]` rather than `[Any]` — SKIE is in the toolchain and usually handles this, but `List<String?>` is already
-known to bridge as `[Any]` here.
+Against the deployed server at `nexus.raphdf201.net`, 17 Aug:
+
+```
+GET /events            404   route exists in repo, not in the running build
+GET /event/2026daly    424   expired frc.nexus key
+GET /batteries/all     500   relation "batteries" does not exist
+```
+
+All three are fixed in this repo and none of the fixes are deployed. Raphaël pulls and restarts by hand;
+`build-server.yml` compiles but never deploys. Deploying current `main` clears all three at once.
+
+**Now verified in Xcode.** The app builds and runs on the iOS 27 simulator. `List<EventSummary>` does bridge as
+`[EventSummary]`, not `[Any]` — SKIE handled it, so the `List<String?>` → `[Any]` problem is specific to nullable
+element types. Live Activity starts and updates, and renders on both the Lock Screen and the Dynamic Island.
+
+**Still not verified:** anything on physical hardware.
 
 ---
 
@@ -217,8 +251,10 @@ Ordered by what blocks what.
    `/events`, which doesn't exist on the currently deployed backend. Until then Settings can only reach demo events.
    Needs Jerry's own frc.nexus and TBA keys
 2. **Pin the deployment target.** All four target configs are still on
-   `$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)`, which tracks whatever Xcode is installed. iOS 16.0 is now genuinely
-   achievable. Pin all six configs. Verify with:
+   `$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)`. Under Xcode 27 beta this resolves to **iOS 17** — it does not track the
+   current SDK, and an earlier guess that it followed the beta to iOS 27 was wrong. iOS 17 still silently drops the
+   iPhone 8/X and 5th-gen iPad, which is the donated-hardware tier teams actually run, and the value moves between Xcode
+   versions. Pin all six configs to 16.0; Live Activities need 16.1+, so nothing in use is lost. Verify with:
    ```
    xcodebuild -showBuildSettings -project TechNexus.xcodeproj \
      -target TechNexus -configuration Release | grep IPHONEOS_DEPLOYMENT_TARGET
@@ -232,6 +268,10 @@ Ordered by what blocks what.
 7. **App Store Connect metadata** — description, screenshots, privacy labels. Simulator screenshots are acceptable, and
    App Store Connect works today
 8. **Confirm on a physical device** once the account resolves
+9. **Open stable Xcode.** Currently won't launch; symptom unknown. A beta cannot be used for App Store submission, so
+   this blocks shipping independently of the account problem
+10. **Fix the picker's failure copy.** It says "check your connection" when the server is the thing that's down —
+    guaranteed confused bug reports from teams on venue wifi
 
 ---
 
@@ -260,6 +300,27 @@ for queue status. A free-tier `e2-micro` also works but is tight for a JVM at 1G
 Config is already env-var based, so containerising is mostly a Dockerfile.
 `TECHNEXUS_CACHE_DIR` exists because container working directories are often read-only. CI currently only builds
 `:server` — no deploy step.
+
+**One code change is required before Cloud Run will accept the container.** `Application.kt:24` hardcodes port 6867.
+Cloud Run injects `PORT` and health-checks against it; a revision listening elsewhere never goes healthy, and the
+failure message does not mention ports. `0.0.0.0` is already correct.
+
+```kotlin
+val port = System.getenv("PORT")?.toIntOrNull() ?: 6867
+val server = embeddedServer(CIO, port, "0.0.0.0", module = Application::module)
+```
+
+**Build the shadow jar on the Mac; use a runtime-only image.** Running Gradle inside Docker drags the whole multi-module
+build through configuration, which means an Android SDK in the build image for a JVM-only artifact.
+
+**Env vars needed at deploy** (`Config.kt` fails fast naming all missing ones): `NEXUS_API_KEY`, `TBA_API_KEY`,
+`DB_URL`, `DB_USER`, `DB_PASSWORD`, plus `TECHNEXUS_CACHE_DIR=/tmp/ktorCache` — Cloud Run's filesystem is tmpfs and
+anything written counts against instance memory. `DB_URL` is interpolated straight into `jdbc:postgresql://`, so Neon's
+host works as-is: `ep-xxx.region.aws.neon.tech/technexus?sslmode=require`.
+
+Get both API keys first — they're the only step with someone else's latency in it, and Jerry's own frc.nexus key is what
+clears the 424. Nothing here needs anything from Raphaël. Default request-only CPU allocation is correct until the
+notification pollers exist.
 
 ### Notifications
 
@@ -355,6 +416,35 @@ real answer going to a `println` on a console nobody read. Relay what actually h
 table objects and never issues DDL. `create`
 is a no-op for existing tables so it's safe every boot, but it does not alter them; a new column still needs a
 migration.
+
+**Gradle does not track the Swift toolchain.** The Xcode/Swift version is not a declared input to any Kotlin/Native or
+SKIE task. With `org.gradle.caching=true` and `org.gradle.configuration-cache=true` both on, switching Xcode versions
+changes nothing Gradle can see, so it restores the previous framework from cache without invoking `swiftc` — a green
+build producing an artifact the other compiler cannot read. This cost most of 17 Aug. SKIE compiles Swift *into*
+`ComposeApp.framework`, so that framework is compiler-version-locked in a way a plain Kotlin/Native framework is not.
+Symptom: `Module compiled with Swift X cannot be imported by the Swift Y compiler`, pointing at
+`MatchCardView.swift:1:8` — column 8 of line 1 is the module name in `import ComposeApp`, so it is never your Swift
+code. Recipe, required on **every** `xcode-select` change:
+
+```bash
+./gradlew --stop
+rm -rf .gradle/configuration-cache composeApp/build shared/build
+rm -rf ~/Library/Developer/Xcode/DerivedData/TechNexus-*
+./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64 \
+  --no-build-cache --no-configuration-cache --rerun-tasks
+```
+
+Confirm with `strings <framework>/Modules/ComposeApp.swiftmodule/arm64-apple-ios-simulator.swiftmodule | grep -i
+"swift version"`. **This recurs in reverse when switching back to stable Xcode to archive** — same silent failure,
+opposite direction, at the worst possible moment. Both Xcodes also share one DerivedData folder, since the name hashes
+the project path.
+
+**Suspend functions need `@Throws` or the continuation leaks.** A Kotlin suspend function without
+`@Throws(Throwable::class)` cannot deliver an exception to Swift. It does not crash — the coroutine's exception goes to
+`handleUncaughtCoroutineException`, gets printed, and the Swift continuation is **never resumed at all**. `try await`
+suspends forever, `catch` never runs, and any `isLoading = false` after it is unreachable. This is the second distinct
+cause of an infinite spinner in this codebase; the first was `getEventData` returning nil into a dead `catch`. Identical
+from the UI, unrelated mechanisms.
 
 **The Gradle daemon caches the environment.** `./gradlew :server:run` forks a JVM inheriting the *daemon's* environment,
 not your shell's, so exports made after the daemon started are invisible. `./gradlew --stop` first, or run
