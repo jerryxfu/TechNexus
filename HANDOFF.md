@@ -1,6 +1,6 @@
 # TechNexus — handoff
 
-Last updated 17 Aug 2026. The iOS app now builds and runs; the Swift toolchain blocker is resolved.
+Last updated 17 Aug 2026. The server is deployed and live at `nexus.jerryxf.net`; the iOS app builds and runs.
 
 The single handoff document for this project. `README.md` covers building and running; `Style_iOS.md` covers SwiftUI
 conventions. This covers state, blockers, decisions and the things that were expensive to learn.
@@ -13,19 +13,22 @@ The app builds and runs on the simulator against frc.nexus demo events. Schedule
 Activity renders on both the Lock Screen and the Dynamic Island, and Settings persists. The core loop was proven at the
 Las Vegas regional against a live event.
 
+The backend is live on Cloud Run at `nexus.jerryxf.net`, fronted by Cloudflare, with Postgres on Neon. CI deploys on
+merge to `main`.
+
 It cannot be submitted yet. One blocker is outside the code; the rest is a list of finite tasks.
 
-| Area                   | State                                          |
-|------------------------|------------------------------------------------|
-| Schedule tab           | Works, simulator, demo events                  |
-| Live Activity          | Lock Screen + Dynamic Island OK on iOS 27 sim  |
-| Pit tab                | Robot cheat sheet only                         |
-| Settings               | Works; picker compiles, blocked on backend 404 |
-| Stats / TechBotics tab | Commented out in `ContentView`                 |
-| Server                 | All routes verified locally                    |
-| `/batteries`           | Fixed but never run against a real database    |
-| Notifications          | Not started                                    |
-| Device builds          | Blocked, see below                             |
+| Area                   | State                                         |
+|------------------------|-----------------------------------------------|
+| Schedule tab           | Works, simulator, demo events                 |
+| Live Activity          | Lock Screen + Dynamic Island OK on iOS 27 sim |
+| Pit tab                | Robot cheat sheet only                        |
+| Settings               | Works; event picker live against /events      |
+| Stats / TechBotics tab | Commented out in `ContentView`                |
+| Server                 | Deployed on Cloud Run at nexus.jerryxf.net    |
+| `/batteries`           | Verified against Neon, returns []             |
+| Notifications          | Not started                                   |
+| Device builds          | Blocked, see below                            |
 
 ---
 
@@ -119,6 +122,36 @@ last poll"** — not string comparison against `status`.
 ---
 
 ## Recent work
+
+### Deployment, 17 Aug
+
+The server is live at `https://nexus.jerryxf.net`, on Cloud Run in project `technexus-84e3f`, region `us-east1`.
+`Backend.kt` points at it and `nexus.raphdf201.net` is retired.
+
+- **Cloud Run** service `technexus-server`. Request-based billing, min 0 / max 4 instances, 1 GiB / 1 vCPU, concurrency
+  80, public. Images in Artifact Registry at
+  `us-east1-docker.pkg.dev/technexus-84e3f/technexus-server/server`
+- **`Application.kt`** reads `PORT` with a 6867 fallback. Cloud Run injects it and health-checks against it; a revision
+  listening elsewhere never goes healthy, and the failure message does not mention ports
+- **`kotlin { jvmToolchain(21) }`** in `server/build.gradle.kts`. `:server` had no `jvmTarget`, so the fat jar's
+  bytecode version was whatever JDK Gradle happened to run on. A JDK 25 build against a `temurin:21-jre` image fails
+  with `UnsupportedClassVersionError`, which reads as a corrupt jar
+- **`Dockerfile` and `.dockerignore`** at the repo root. Runtime-only image over the fat jar — Gradle never runs inside
+  Docker, because `shared` applies `androidKmpLibrary` and any Gradle invocation in this repo therefore needs an Android
+  SDK present
+- **Postgres is Neon**, AWS `us-east-1`, through the **pooler** endpoint. `DB_URL` carries `prepareThreshold=0`; see
+  *Gotchas*. `DB_URL` takes no scheme and no credentials — `Application.kt` prepends `jdbc:postgresql://`
+- **Secrets** `NEXUS_API_KEY`, `TBA_API_KEY`, `DB_PASSWORD` in Secret Manager. The service runs as
+  `firebase-adminsdk-fbsvc@technexus-84e3f.iam.gserviceaccount.com` — the project was created through Firebase, so that
+  is the identity Cloud Run picked up, not the default compute account. It needs
+  `roles/secretmanager.secretAccessor` on each secret, granted by hand; the console did not offer it. Broader
+  permissions than an HTTP proxy needs; a dedicated runtime account would be tighter
+- **Cloudflare Worker** `technexus-proxy`, route `nexus.jerryxf.net/*`. Rewrites the request hostname to the `run.app`
+  origin and sets `cf: { cacheEverything: true }`. DNS is a proxied `CNAME` to the same hostname
+- **CI deploys.** `build-server.yml` builds the fat jar on every push and, on `main` only, pushes the image, deploys a
+  revision, and smoke-tests `/events` through the public hostname. Auth is a service account key in `GCP_SA_KEY`; it
+  does not expire and the repo is public, so rotate it after the season or move to Workload Identity Federation. The
+  deploy step passes **image only** — passing `env_vars` would replace the whole map rather than merge into it
 
 ### iOS and toolchain, 17 Aug
 
@@ -222,16 +255,18 @@ GET /event/2026daly    404 "2026daly does not exist."
 
 Startup logs `Database connected, schema verified`.
 
-Against the deployed server at `nexus.raphdf201.net`, 17 Aug:
+Against production at `nexus.jerryxf.net`, 17 Aug:
 
 ```
-GET /events            404   route exists in repo, not in the running build
-GET /event/2026daly    424   expired frc.nexus key
-GET /batteries/all     500   relation "batteries" does not exist
+GET /events            200, seven events
+GET /event/demo1815    200, includes nowQueuing and actual* times
+GET /event/2026daly    404 "2026daly does not exist.", Cache-Control: max-age=15
+GET /batteries/all     200 []
+cf-cache-status        MISS, then HIT on repeat
 ```
 
-All three are fixed in this repo and none of the fixes are deployed. Raphaël pulls and restarts by hand;
-`build-server.yml` compiles but never deploys. Deploying current `main` clears all three at once.
+The 404 / 424 / 500 trio from the old backend is closed. The `[]` is the proof that `createSchema()` ran against Neon
+through the pooler — before this the schema had only ever existed in Kotlin.
 
 **Now verified in Xcode.** The app builds and runs on the iOS 27 simulator. `List<EventSummary>` does bridge as
 `[EventSummary]`, not `[Any]` — SKIE handled it, so the `List<String?>` → `[Any]` problem is specific to nullable
@@ -245,12 +280,7 @@ element types. Live Activity starts and updates, and renders on both the Lock Sc
 
 Ordered by what blocks what.
 
-1. **Migrate the domain to `nexus.jerryxf.net` and deploy the new server.**
-   `apiUrl` is a hardcoded `const` in `Backend.kt`, so whatever hostname ships in 1.0 is what every user talks to until
-   they update — on iOS that's a review cycle. This must also land **before** the app ships, because the picker calls
-   `/events`, which doesn't exist on the currently deployed backend. Until then Settings can only reach demo events.
-   Needs Jerry's own frc.nexus and TBA keys
-2. **Pin the deployment target.** All four target configs are still on
+1. **Pin the deployment target.** All four target configs are still on
    `$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)`. Under Xcode 27 beta this resolves to **iOS 17** — it does not track the
    current SDK, and an earlier guess that it followed the beta to iOS 27 was wrong. iOS 17 still silently drops the
    iPhone 8/X and 5th-gen iPad, which is the donated-hardware tier teams actually run, and the value moves between Xcode
@@ -259,68 +289,40 @@ Ordered by what blocks what.
    xcodebuild -showBuildSettings -project TechNexus.xcodeproj \
      -target TechNexus -configuration Release | grep IPHONEOS_DEPLOYMENT_TARGET
    ```
-3. **Remove Firebase from the Xcode project** (above)
-4. **Android event field** — `composeApp/src/androidMain/.../views/settings/SettingsView.kt:49`
+2. **Remove Firebase from the Xcode project** (above)
+3. **Android event field** — `composeApp/src/androidMain/.../views/settings/SettingsView.kt:49`
    still has placeholder text `"e.g., 2026daly"`, now a dead event. Samy's file; the picker should be mirrored there
    eventually
-5. **FIRST/FRC non-affiliation disclaimer** — nothing in the codebase mentions it. Guideline 5.2.1
-6. **Privacy policy** — required by App Store Connect, doesn't exist
-7. **App Store Connect metadata** — description, screenshots, privacy labels. Simulator screenshots are acceptable, and
+4. **FIRST/FRC non-affiliation disclaimer** — nothing in the codebase mentions it. Guideline 5.2.1
+5. **Privacy policy** — required by App Store Connect, doesn't exist
+6. **App Store Connect metadata** — description, screenshots, privacy labels. Simulator screenshots are acceptable, and
    App Store Connect works today
-8. **Confirm on a physical device** once the account resolves
-9. **Open stable Xcode.** Currently won't launch; symptom unknown. A beta cannot be used for App Store submission, so
+7. **Confirm on a physical device** once the account resolves
+8. **Open stable Xcode.** Currently won't launch; symptom unknown. A beta cannot be used for App Store submission, so
    this blocks shipping independently of the account problem
-10. **Fix the picker's failure copy.** It says "check your connection" when the server is the thing that's down —
-    guaranteed confused bug reports from teams on venue wifi
+9. **Fix the picker's failure copy.** It says "check your connection" when the server is the thing that's down —
+   guaranteed confused bug reports from teams on venue wifi. Now testable, since the server can be made to fail
 
 ---
 
 ## Next up
 
-### Hosting
+### Hosting — done, two decisions deferred
 
-Target shape: Cloudflare for DNS, TLS and edge caching; Google Cloud for compute; Neon or Supabase for Postgres — Cloud
-SQL costs more than everything else combined.
+The deployed shape is under *Recent work*. Two things were left open on purpose.
 
-**The Cloudflare cache rule is the sleeper win.** `/event/{key}` already carries
-`Cache-Control: max-age=15`. A cache rule respecting origin TTL turns forty people polling every 15s into roughly four
-origin requests a minute, protecting both the server and the frc.nexus quota. Cloudflare will not cache API-looking
-paths unless told to. Don't negative-cache `/events` aggressively — a not-yet-published event shouldn't 404 at the edge
-for five minutes.
+**CPU allocation is request-based**, which is correct today and wrong the moment the notification poller exists. Cloud
+Run only allocates CPU during request handling, so a `while(true) { poll(); delay() }` loop inside a request-billed
+service silently stops a few minutes after the last request — works perfectly in testing, dies overnight. Either
+`--min-instances=1 --no-cpu-throttling`, which switches to instance-based billing, or scale to zero and drive the poll
+from Cloud Scheduler on its one-minute floor, which is fine for queue status. Decide before writing the poller.
 
-**Cloudflare Workers is not an option** for this server: JS/WASM runtime, no JVM. Same for D1, Durable Objects and
-Queues.
+**Artifact Registry has no cleanup policy.** CI tags every image with the commit SHA, so roughly 250 MB accumulates per
+merge to `main`. "Keep most recent 5 versions" is one field.
 
-**The Cloud Run gotcha.** Cloud Run only allocates CPU during request handling. A
-`while(true) { poll(); delay() }` loop inside a default service silently stops a few minutes after the last request —
-works perfectly in testing, dies overnight. Either `--min-instances=1 --no-cpu-throttling`, which switches to
-instance-based billing, or scale to zero and drive the poll from Cloud Scheduler on its one-minute floor, which is fine
-for queue status. A free-tier `e2-micro` also works but is tight for a JVM at 1GB.
-
-Config is already env-var based, so containerising is mostly a Dockerfile.
-`TECHNEXUS_CACHE_DIR` exists because container working directories are often read-only. CI currently only builds
-`:server` — no deploy step.
-
-**One code change is required before Cloud Run will accept the container.** `Application.kt:24` hardcodes port 6867.
-Cloud Run injects `PORT` and health-checks against it; a revision listening elsewhere never goes healthy, and the
-failure message does not mention ports. `0.0.0.0` is already correct.
-
-```kotlin
-val port = System.getenv("PORT")?.toIntOrNull() ?: 6867
-val server = embeddedServer(CIO, port, "0.0.0.0", module = Application::module)
-```
-
-**Build the shadow jar on the Mac; use a runtime-only image.** Running Gradle inside Docker drags the whole multi-module
-build through configuration, which means an Android SDK in the build image for a JVM-only artifact.
-
-**Env vars needed at deploy** (`Config.kt` fails fast naming all missing ones): `NEXUS_API_KEY`, `TBA_API_KEY`,
-`DB_URL`, `DB_USER`, `DB_PASSWORD`, plus `TECHNEXUS_CACHE_DIR=/tmp/ktorCache` — Cloud Run's filesystem is tmpfs and
-anything written counts against instance memory. `DB_URL` is interpolated straight into `jdbc:postgresql://`, so Neon's
-host works as-is: `ep-xxx.region.aws.neon.tech/technexus?sslmode=require`.
-
-Get both API keys first — they're the only step with someone else's latency in it, and Jerry's own frc.nexus key is what
-clears the 424. Nothing here needs anything from Raphaël. Default request-only CPU allocation is correct until the
-notification pollers exist.
+Also open: the `run.app` URL stays publicly reachable and bypasses Cloudflare. For a public read-only proxy that only
+means uncached load, which `--max-instances 4` caps. Disabling the default URL is not an option — the Worker targets
+that hostname.
 
 ### Notifications
 
@@ -492,6 +494,34 @@ no checked exceptions, so Android call sites will keep compiling and start crash
 `LiveActivityFormat` (extension) because the extension doesn't link ComposeApp. Change both. Live Activity card opacity
 is `LiveActivityFormat.backgroundTint`.
 
+**Cloudflare Host header rewriting is Enterprise-only.** Origin Rules are documented as "available on all plans", but
+the per-feature table is not: Override Host header, Override SNI and Override DNS record are Enterprise; only Override
+destination port is on Free. Cloud Run routes by `Host` and 404s anything else, so a custom domain on a Free zone needs
+a Worker. Cloud Connector looks like the escape hatch — it modifies the `Host` header automatically and is on Free — but
+its GCP support is Cloud Storage buckets only, not Cloud Run.
+
+**The Worker is metered per client request, not per origin request.** Edge caching protects Cloud Run and the frc.nexus
+quota and does nothing for Worker invocations, which fire on cache hits too. Workers Free is 100,000 requests/day **per
+account**, shared with every other Worker on it. Forty devices polling every 15s over an eight-hour competition day is
+roughly 77,000 — fits one team, does not fit two. Workers Paid is $5/month for 10M.
+
+**`cacheEverything` makes JSON cacheable but sets no TTL.** Cloudflare caches by file extension and never caches JSON by
+default. With `cacheEverything: true` and no explicit `cacheTtl`, the origin's `Cache-Control` decides, so `/events`
+gets 300s and `/event/{key}` gets 15s straight from `Events.kt`. The 404 path inherits `max-age=15` too, because
+`call.caching` is set before `proxyNexus` runs — which is what stops a not-yet-published event being negative-cached at
+the edge for Cloudflare's default three minutes.
+
+**PgBouncer and pgjdbc disagree about prepared statements.** Neon's pooler endpoint runs transaction pooling; pgjdbc
+promotes a statement to a server-side prepared statement after five executions. The two together produce intermittent
+`prepared statement "S_3" already exists` — clean in testing, broken under load. `prepareThreshold=0` in `DB_URL`
+disables the promotion. Also note `channel_binding` is the libpq spelling and pgjdbc ignores it; the pgjdbc parameter is
+`channelBinding`, and it is redundant over TLS.
+
+**Exposed opens a connection per transaction.** `Database.connect(url, ...)` given a URL rather than a DataSource has no
+pool, so every `/batteries` call is a fresh TCP+TLS handshake. Against a direct Neon endpoint that exhausts the
+connection cap; the pooler absorbs it. A real pool is the eventual answer, but Hikari behaves badly under Cloud Run's
+request-scoped CPU, where housekeeper threads freeze between requests. Leave it until the poller forces the issue.
+
 ---
 
 ## File map
@@ -563,10 +593,9 @@ server/src/main/resources/logback.xml           NEW
 
 ## Ownership
 
-- **Jerry** — iOS, and now the backend and its hosting
-- **Raphaël** — App Manager on the Apple account; handing over
-  `nexus.raphdf201.net`
-- **Samy** — Android/Compose, Statbotics
+- **Jerry** — iOS, and the backend and its hosting
+- **Raphaël** — App Manager on the Apple account. Handover complete; `nexus.raphdf201.net` is retired
+- **Samy** — Android/Compose, Statbotics. Can ship server changes by merging to `main` — no GCP access needed
 
 **The date to work backwards from is 28 August** — Summer Scorcher, and the first chance to run the newer surface
 (redesigned Live Activity, event picker,

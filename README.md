@@ -15,7 +15,7 @@ Five build units in one repo. They share code but ship independently — nothing
 | `composeApp` | KMP library             | Client logic — API calls, settings storage. Depends on `shared`.                                                                               |
 | `androidApp` | `.apk` / `.aab`         | Android UI.                                                                                                                                    |
 | `iosApp`     | `.ipa`                  | SwiftUI app and the Live Activity extension. Built by Xcode, not Gradle.                                                                       |
-| `server`     | fat jar                 | Ktor service behind `nexus.raphdf201.net`. Depends on `shared`, not on `composeApp`.                                                           |
+| `server`     | fat jar                 | Ktor service behind `nexus.jerryxf.net`. Depends on `shared`, not on `composeApp`.                                                             |
 
 ## Data sources
 
@@ -57,7 +57,7 @@ of them at once.
 | `DB_PASSWORD`   | Postgres password                                           |
 
 `TECHNEXUS_CACHE_DIR` is optional and moves the outbound HTTP cache off the working directory, which a container often
-mounts read-only.
+mounts read-only. `PORT` is optional too and defaults to 6867; Cloud Run injects it and health-checks against it.
 
 ## Running locally
 
@@ -93,3 +93,30 @@ created on frc.nexus and are always named `demo` followed by a number.
 | `GET /event/{event}`                 | frc.nexus, live event and match status     | 15 s  |
 | `GET /event/{event}/match/{matchId}` | The Blue Alliance, reduced to a score      | 1 h   |
 | `/batteries/*`                       | Postgres                                   | none  |
+
+## Deployment
+
+The server runs on **Cloud Run** (`technexus-server`, project `technexus-84e3f`, region `us-east1`), behind a
+**Cloudflare Worker** at `nexus.jerryxf.net`, with **Postgres on Neon** in AWS `us-east-1`.
+
+Merging to `main` deploys. `build-server.yml` builds the fat jar on every push; on `main` it also builds the image,
+pushes it to Artifact Registry, deploys a revision, and smoke-tests `/events`.
+
+Environment variables and secret bindings live on the Cloud Run service, not in CI — the deploy step passes the image
+only, so config survives untouched.
+
+To deploy by hand:
+
+```
+./gradlew :server:buildFatJar
+IMAGE=us-east1-docker.pkg.dev/technexus-84e3f/technexus-server/server:$(date +%m%d-%H%M)
+docker buildx build --platform linux/amd64 -t $IMAGE --push .
+gcloud run deploy technexus-server --image $IMAGE --region us-east1
+```
+
+`--platform linux/amd64` is required from an Apple Silicon Mac; Cloud Run rejects arm64 images with an error about
+manifest types that does not mention architecture.
+
+The Worker lives in its own repo. It rewrites the request hostname to the `run.app` origin — Cloud Run routes by `Host`
+and 404s anything else — and sets `cf: { cacheEverything: true }` so edge caching honours the `Cache-Control` values
+these routes already send.
