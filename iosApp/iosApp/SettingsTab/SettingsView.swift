@@ -8,12 +8,13 @@ struct SettingsView: View {
     @State private var savedTeamNumber = ""
     @State private var isSaved = false
     @State private var resetTask: Task<Void, Never>?
+    @State private var showEventPicker = false
     @AppStorage(LiveActivityPreference.key)
     private var liveActivityEnabled = true
     @FocusState private var focusedField: Field?
 
     private enum Field {
-        case eventId, teamNumber
+        case teamNumber
     }
 
     private var hasChanges: Bool {
@@ -37,6 +38,9 @@ struct SettingsView: View {
             .animation(.default, value: hasChanges)
             .animation(.default, value: isSaved)
         }
+        .sheet(isPresented: $showEventPicker) {
+            EventPickerView(currentEventId: eventId) { eventId = $0 }
+        }
         .onAppear(perform: loadSettings)
         // task(id:) rather than onChange — one API that works on iOS 16.
         .task(id: liveActivityEnabled) {
@@ -52,12 +56,10 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionTitle(title: "General", icon: "gearshape")
             SettingsCard {
-                SettingsRow(
-                    label: "Event ID",
-                    placeholder: "e.g. 2026daly",
-                    text: $eventId
-                )
-                .focused($focusedField, equals: .eventId)
+                EventPickerRow(eventId: eventId) {
+                    focusedField = nil
+                    showEventPicker = true
+                }
 
                 Divider().padding(.leading, 14)
 
@@ -69,7 +71,7 @@ struct SettingsView: View {
                 .focused($focusedField, equals: .teamNumber)
                 .keyboardType(.numberPad)
             }
-            Text("Event ID determines which schedule is loaded.")
+            Text("The event determines which schedule is loaded.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 4)
@@ -122,18 +124,9 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
     private var saveIcon: some View {
-        let name = isSaved ? "checkmark" : "square.and.arrow.down"
-        if #available(iOS 18.0, *) {
-            Image(systemName: name)
-                .contentTransition(.symbolEffect(.replace.byLayer.downUp))
-        } else if #available(iOS 17.0, *) {
-            Image(systemName: name)
-                .contentTransition(.symbolEffect(.replace.byLayer.downUp))
-        } else {
-            Image(systemName: name)
-        }
+        Image(systemName: isSaved ? "checkmark" : "square.and.arrow.down")
+            .modifier(ReplaceSymbolTransition())
     }
 
     // MARK: - Actions
@@ -180,7 +173,51 @@ private struct SettingsCard<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) { content }
             .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(.rect(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+/// The availability check lives in a modifier, not around the `Image`.
+/// Branching on `if #available` at the view level produces a different identity
+/// per branch, so SwiftUI tears the image down and rebuilds it instead of
+/// morphing — which silently kills the very symbol effect the branch exists to
+/// apply. One `Image`, conditionally modified.
+private struct ReplaceSymbolTransition: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.contentTransition(.symbolEffect(.replace.byLayer.downUp))
+        } else {
+            content
+        }
+    }
+}
+
+/// Opens the picker rather than accepting free text. Event keys are not
+/// something a user should have to know, and a typo used to mean a silent
+/// failure that looked identical to the backend being down.
+private struct EventPickerRow: View {
+    let eventId: String
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                Text("Event")
+                    .foregroundStyle(.secondary)
+                    .font(.subheadline)
+                Spacer()
+                Text(eventId)
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundStyle(.primary)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

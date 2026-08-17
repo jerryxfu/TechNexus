@@ -4,6 +4,35 @@ Conventions for the SwiftUI layer. Android follows its own Material conventions;
 
 ---
 
+## Deployment target
+
+**The floor is iOS 16.0.** Live Activities need 16.1 and are gated by ActivityKit itself; everything else in the app
+runs on 16.
+
+The floor rises by accident, not by decision, because SwiftUI added shorthand spellings of old types in later releases
+and the compiler accepts them without comment:
+
+| Shorthand                    | Available | Same thing as                           | Available |
+|------------------------------|-----------|-----------------------------------------|-----------|
+| `.rect(cornerRadius:style:)` | iOS 17    | `RoundedRectangle(cornerRadius:style:)` | iOS 13    |
+| `.rect`                      | iOS 17    | `Rectangle()`                           | iOS 13    |
+| `.circle`                    | iOS 17    | `Circle()`                              | iOS 13    |
+| `.capsule`                   | iOS 17    | `Capsule()`                             | iOS 13    |
+
+These produce identical views. Reaching for the shorthand in a `clipShape`, `contentShape`, or `fill` silently makes the
+file iOS 17-only, and nothing surfaces until someone pins the deployment target and the build breaks. **Use the
+initializer form.** One `.clipShape(.rect(...))` in `SettingsCard` was the only thing standing between this app and its
+stated iOS 16 support.
+
+Genuinely newer APIs are fine behind `if #available`. Note that the check widens the availability context for everything
+inside it — `.rect` inside an `if #available(iOS 26.0, *)` block compiles against a 16.0 target, because that branch can
+only run on 26.
+
+Pin `IPHONEOS_DEPLOYMENT_TARGET` explicitly on all six build configurations. `$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)`
+tracks whatever Xcode is installed and moves on its own.
+
+---
+
 ## Typography
 
 ### The rule
@@ -191,8 +220,10 @@ out by `staleDate` in the manager).
 reads through rather than presenting a hard black slab.
 
 **Region budgets.** Compact leading and trailing are roughly 60pt each — three or four characters. The minimal
-presentation holds one glyph. Neither can carry a full `H:MM:SS` countdown, so past an hour out we show clock time
-instead.
+presentation holds one glyph. `H:MM:SS` is right at the edge of what compact trailing holds, so it is paired with
+`.minimumScaleFactor` rather than being swapped for clock time past an hour out. That swap used to exist and was
+removed: `3:45` reads identically as a countdown and as a wall clock, so the mode change made the number ambiguous at
+exactly the glance it was meant to serve.
 
 **Never encode meaning in colour alone.** The minimal presentation has room for one symbol and nothing else, so the
 symbol varies by status rather than just its tint. Colourblind users get nothing from a green flag versus an orange one.

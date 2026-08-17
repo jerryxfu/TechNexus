@@ -23,7 +23,7 @@ fun Application.matches() = routing {
         val matchId = try {
             call.parameters["matchId"]?.let { MatchId.fromShort(it) }
         } catch (e: Exception) {
-            e.printStackTrace()
+            call.application.log.warn("Unparseable match id {}", call.parameters["matchId"], e)
             null
         }
         if (matchId == null) {
@@ -33,11 +33,21 @@ fun Application.matches() = routing {
 
         val resp =
             client.get("https://www.thebluealliance.com/api/v3/match/${matchId.getTBAKey(event)}") {
-                headers.append("X-TBA-Auth-Key", tbaApiKey)
+                headers.append("X-TBA-Auth-Key", Config.tbaApiKey)
             }
         if (resp.status != HttpStatusCode.OK) {
-            call.respond(HttpStatusCode.FailedDependency)
-            println(resp.status.toString() + " : " + resp.bodyAsText())
+            // Same reasoning as proxyNexus: relay a missing match as missing,
+            // and never lose the upstream detail to stdout.
+            val body = resp.bodyAsText()
+            if (resp.status == HttpStatusCode.NotFound) {
+                call.application.log.info("TBA 404 for {}: {}", matchId.getTBAKey(event), body)
+                call.respond(HttpStatusCode.NotFound, body)
+            } else {
+                call.application.log.error(
+                    "TBA {} for {}: {}", resp.status.value, matchId.getTBAKey(event), body
+                )
+                call.respond(HttpStatusCode.BadGateway, "The Blue Alliance returned ${resp.status.value}.")
+            }
             return@get
         }
         val score = resp.body<TBAMatch>()

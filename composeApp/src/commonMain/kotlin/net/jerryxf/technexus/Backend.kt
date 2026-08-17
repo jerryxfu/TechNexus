@@ -7,6 +7,19 @@ import net.jerryxf.technexus.shared.*
 
 private const val apiUrl = "https://nexus.raphdf201.net"
 
+/**
+ * Every current and upcoming event on Nexus, soonest first.
+ *
+ * Throws on failure rather than returning null. [getEventData] and the battery
+ * calls below swallow their exceptions, which is why every Swift caller needs a
+ * comment explaining that its `catch` is dead code — don't copy that here.
+ */
+suspend fun getEvents(): List<EventSummary> =
+    client.get("$apiUrl/events")
+        .body<Map<String, NexusEvent>>()
+        .map { (key, event) -> EventSummary(key, event.name, event.start, event.end) }
+        .sortedBy { it.start }
+
 suspend fun getEventData(eventKey: String): Event? {
     return try {
         client.get("$apiUrl/event/$eventKey").body<Event>()

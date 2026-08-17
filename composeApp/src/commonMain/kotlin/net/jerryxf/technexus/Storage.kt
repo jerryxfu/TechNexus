@@ -27,7 +27,9 @@ class AppSettings(private val _settings: () -> Settings) {
 
     companion object {
         private const val KEY_EVENT_ID = "event_id"
-        private const val DEFAULT_EVENT_ID = "2026daly"
+        // A demo event, not a real one: Nexus purges past seasons, so any real key
+        // hardcoded here 404s the moment that event ends. Demo events persist.
+        private const val DEFAULT_EVENT_ID = "demo1815"
 
         private const val KEY_TEAM_NUMBER = "team_number"
         private const val DEFAULT_TEAM_NUMBER = "3990"

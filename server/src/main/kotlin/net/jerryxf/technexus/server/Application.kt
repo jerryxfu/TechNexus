@@ -13,9 +13,9 @@ import io.ktor.server.plugins.compression.*
 import io.ktor.server.plugins.compression.zstd.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.forwardedheaders.*
+import kotlinx.coroutines.runBlocking
 import net.jerryxf.technexus.shared.jsonConfig
 import org.jetbrains.exposed.v1.jdbc.Database
-import java.io.File
 import java.nio.file.Files
 import java.nio.file.Paths
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientContentNegotiation
@@ -23,18 +23,14 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation as ServerCon
 
 val server = embeddedServer(CIO, 6867, "0.0.0.0", module = Application::module)
 
-private val config = File("apiKey").readLines().map { it.trim() }
-val nexusApiKey = config[0]
-val tbaApiKey = config[1]
-val dbUrl = config[2]
-val dbUser = config[3]
-val dbPassword = config[4]
-
 fun main() {
     server.start(true)
 }
 
 fun Application.module() {
+    // First, so a missing environment variable or an unreachable database stops the server here rather than surfacing as a 500 during a match.
+    connectDatabase()
+
     install(CORS) {
         anyHost()
         maxAgeInSeconds = 3600
@@ -53,11 +49,30 @@ fun Application.module() {
 
     server.monitor.subscribe(ApplicationStopped) { client.close() }
 
-    Database.connect("jdbc:postgresql://$dbUrl", "org.postgresql.Driver", dbUser, dbPassword)
-
     batteries()
     events()
     matches()
+}
+
+/**
+ * Connects Postgres and creates any missing tables.
+ *
+ * [Database.connect] only opens a connection, it never creates schema, which is
+ * why `/batteries` returned `relation "batteries" does not exist` against a
+ * database that had never been set up by hand. [createSchema] closes that gap.
+ *
+ * Failures propagate. A server that starts without its database only moves the
+ * error to a request handler, where it reads as a bug in the app.
+ */
+private fun Application.connectDatabase() {
+    Database.connect(
+        "jdbc:postgresql://${Config.dbUrl}",
+        "org.postgresql.Driver",
+        Config.dbUser,
+        Config.dbPassword
+    )
+    runBlocking { createSchema() }
+    log.info("Database connected, schema verified")
 }
 
 val client = HttpClient {
@@ -70,6 +85,15 @@ val client = HttpClient {
         identity()
     }
     install(HttpCache) {
-        publicStorage(FileStorage(Files.createDirectories(Paths.get("ktorCache")).toFile()))
+        // Honours frc.nexus and TBA cache headers, so repeat requests inside a
+        // window never leave the box. TECHNEXUS_CACHE_DIR exists because a
+        // container's working directory is frequently read-only.
+        publicStorage(
+            FileStorage(
+                Files.createDirectories(
+                    Paths.get(System.getenv("TECHNEXUS_CACHE_DIR") ?: "ktorCache")
+                ).toFile()
+            )
+        )
     }
 }
