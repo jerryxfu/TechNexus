@@ -5,6 +5,8 @@ plugins {
     application
 }
 
+kotlin { jvmToolchain(21) }
+
 group = "net.jerryxf.technexus.server"
 version = "1.0.0"
 

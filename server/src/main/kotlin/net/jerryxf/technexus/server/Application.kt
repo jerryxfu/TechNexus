@@ -21,7 +21,12 @@ import java.nio.file.Paths
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientContentNegotiation
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation as ServerContentNegotiation
 
-val server = embeddedServer(CIO, 6867, "0.0.0.0", module = Application::module)
+val server = embeddedServer(
+    CIO,
+    port = System.getenv("PORT")?.toIntOrNull() ?: 6867,
+    host = "0.0.0.0",
+    module = Application::module
+)
 
 fun main() {
     server.start(true)
