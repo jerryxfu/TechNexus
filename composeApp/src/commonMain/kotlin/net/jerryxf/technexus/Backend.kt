@@ -14,6 +14,7 @@ private const val apiUrl = "https://nexus.raphdf201.net"
  * calls below swallow their exceptions, which is why every Swift caller needs a
  * comment explaining that its `catch` is dead code — don't copy that here.
  */
+@Throws(Throwable::class)
 suspend fun getEvents(): List<EventSummary> =
     client.get("$apiUrl/events")
         .body<Map<String, NexusEvent>>()

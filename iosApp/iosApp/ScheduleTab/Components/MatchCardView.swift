@@ -143,7 +143,8 @@ struct MatchCardView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     HStack(spacing: 3) {
-                        ForEach(redTeams, id: \.self) { team in
+                        // Index-keyed on purpose: team strings are not unique once teamList() maps missing entries to "N/A"
+                        ForEach(Array(redTeams.enumerated()), id: \.offset) { _, team in
                             TeamPill(
                                 team: team,
                                 color: .red,
@@ -158,7 +159,8 @@ struct MatchCardView: View {
                         .foregroundStyle(.tertiary)
 
                     HStack(spacing: 3) {
-                        ForEach(blueTeams, id: \.self) { team in
+                        // Index-keyed on purpose: team strings are not unique once teamList() maps missing entries to "N/A"
+                        ForEach(Array(blueTeams.enumerated()), id: \.offset) { _, team in
                             TeamPill(
                                 team: team,
                                 color: .blue,
@@ -218,7 +220,8 @@ struct MatchCardView: View {
                 Text(label)
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(color.opacity(0.7))
-                ForEach(teams, id: \.self) { team in
+                // Index-keyed on purpose: team strings are not unique once teamList() maps missing entries to "N/A"
+                ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
                     TeamPill(
                         team: team,
                         color: color,
