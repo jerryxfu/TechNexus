@@ -22,3 +22,4 @@ ktorCache/
 composeApp/release/
 iosApp/iosApp/GoogleService-Info.plist
 keys/
+key.json

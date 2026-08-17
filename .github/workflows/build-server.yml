@@ -10,22 +10,76 @@ on:
       - 'gradlew.bat'
       - '*.gradle.kts'
       - 'gradle.properties'
+      - 'Dockerfile'
+      - '.dockerignore'
       - '.github/workflows/build-server.yml'
+  workflow_dispatch:
+
+env:
+  REGION: us-east1
+  SERVICE: technexus-server
+  IMAGE_BASE: us-east1-docker.pkg.dev/technexus-84e3f/technexus-server/server
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+
       - name: Setup JDK
         uses: actions/setup-java@v5
         with:
           distribution: "temurin"
-          java-version: 25
+          java-version: 21
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
           cache-disabled: false
-      - name: Build
-        run: chmod +x ./gradlew && ./gradlew :server:build
+
+      # Runs on every push, including branches. Catches compile errors
+      # without touching the deployed service.
+      - name: Build fat jar
+        run: chmod +x ./gradlew && ./gradlew :server:buildFatJar
+
+      # ---- Everything below only runs on main ----
+
+      - name: Authenticate to Google Cloud
+        if: github.ref == 'refs/heads/main'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        if: github.ref == 'refs/heads/main'
+        uses: google-github-actions/setup-gcloud@v2
+
+      # The runner is already amd64, so no buildx --platform needed here.
+      - name: Build and push image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+          IMAGE="${IMAGE_BASE}:${GITHUB_SHA}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      # Image only. Env vars and secret bindings already live on the service;
+      # passing env_vars here would REPLACE the whole map, not merge into it.
+      - name: Deploy to Cloud Run
+        if: github.ref == 'refs/heads/main'
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}
+
+      # Hits the public hostname, so this exercises the Worker and DNS too.
+      - name: Smoke test
+        if: github.ref == 'refs/heads/main'
+        run: |
+          sleep 10
+          curl -fsS "https://nexus.jerryxf.net/events" > /dev/null
+          echo "/events OK"
