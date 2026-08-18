@@ -31,8 +31,21 @@ fun Application.matches() = routing {
             return@get
         }
 
+        // Null for playoffs and practice: TBA keys eliminations by bracket
+        // position and doesn't carry practice matches at all. Saying so beats
+        // sending a key TBA has never used and relaying the resulting 404 as
+        // though the match were missing.
+        val tbaKey = matchId.getTBAKey(event)
+        if (tbaKey == null) {
+            call.respond(
+                HttpStatusCode.BadRequest,
+                "Scores are only available for qualification matches."
+            )
+            return@get
+        }
+
         val resp =
-            client.get("https://www.thebluealliance.com/api/v3/match/${matchId.getTBAKey(event)}") {
+            client.get("https://www.thebluealliance.com/api/v3/match/$tbaKey") {
                 headers.append("X-TBA-Auth-Key", Config.tbaApiKey)
             }
         if (resp.status != HttpStatusCode.OK) {
@@ -40,11 +53,11 @@ fun Application.matches() = routing {
             // and never lose the upstream detail to stdout.
             val body = resp.bodyAsText()
             if (resp.status == HttpStatusCode.NotFound) {
-                call.application.log.info("TBA 404 for {}: {}", matchId.getTBAKey(event), body)
+                call.application.log.info("TBA 404 for {}: {}", tbaKey, body)
                 call.respond(HttpStatusCode.NotFound, body)
             } else {
                 call.application.log.error(
-                    "TBA {} for {}: {}", resp.status.value, matchId.getTBAKey(event), body
+                    "TBA {} for {}: {}", resp.status.value, tbaKey, body
                 )
                 call.respond(HttpStatusCode.BadGateway, "The Blue Alliance returned ${resp.status.value}.")
             }

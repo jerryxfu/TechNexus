@@ -1,7 +1,8 @@
 # TechNexus — handoff
 
 Last updated 18 Aug 2026. The server is deployed and live at `nexus.jerryxf.net`; the iOS app builds and runs against a
-pinned iOS 16.2 deployment target.
+pinned iOS 16.2 deployment target. Schedules refresh correctly, pull-to-refresh works, the app survives losing its
+connection, and playoff alliance numbers come through from Nexus.
 
 The single handoff document for this project. `README.md` covers building and running; `Style_iOS.md` covers SwiftUI
 conventions. This covers state, blockers, decisions and the things that were expensive to learn.
@@ -21,14 +22,16 @@ It cannot be submitted yet. One blocker is outside the code; the rest is a list 
 
 | Area                   | State                                         |
 |------------------------|-----------------------------------------------|
-| Schedule tab           | Works, simulator, demo events                 |
-| Live Activity          | Lock Screen + Dynamic Island OK on iOS 27 sim |
+| Schedule tab           | Pull-to-refresh, offline cache, 15s poll      |
+| Live Activity          | Lock Screen + Dynamic Island, top-3 teams cap |
 | Pit tab                | Robot cheat sheet only                        |
 | Settings               | Auto-save, reset to defaults, picker, About   |
 | Deployment target      | Pinned to 16.2, six configs, builds clean     |
 | Stats / TechBotics tab | Commented out in `ContentView`                |
 | Server                 | Deployed on Cloud Run at nexus.jerryxf.net    |
 | `/batteries`           | Verified against Neon, returns []             |
+| Playoff alliances      | Server joins Nexus alliances, renders A3 / A? |
+| Offline                | Disk cache, backoff, freshness chip in header |
 | Notifications          | Not started                                   |
 | Device builds          | Blocked, see below                            |
 
@@ -103,14 +106,34 @@ created on frc.nexus and are always named `demo` followed by a number.
 because it was previously assumed otherwise, and that assumption produced a months-long hunt for an expired key that was
 never expired — see *Gotchas*.
 
+**The OpenAPI spec is the source of truth and it is worth reading.** `https://frc.nexus/api/v1/docs` renders from an
+embedded ReDoc spec — the page needs JavaScript, so `curl` returns nothing useful. Extract it from the HTML instead:
+the `const __redoc_state = ` blob near the bottom parses as JSON and contains every path and schema. Several things
+below were assumed wrong for months and are answered outright in that document.
+
 **Fields the app receives:**
 
 - `nowQueuing` — the event's own answer for the currently queuing match, e.g.
   `"Practice 10"`. Authoritative, unlike anything reconstructed from `matches`
 - `announcements` and `partsRequests` — real Nexus features authored by event volunteers, currently delivered to teams
-  only via Slack or Discord opt-in. **Empty on every reachable event, so the schema is unknown and deliberately not
-  modelled.** Create a demo event, post an announcement in it, read the shape, then write the data class
-- `times.actualQueueTime` / `actualOnDeckTime` / `actualOnFieldTime`
+  only via Slack or Discord opt-in. Empty on every reachable event, **but the schemas are documented in the spec**, so
+  they no longer need to be reverse-engineered from a live demo event before being modelled
+- `times.*` — see below
+
+**Match labels are a documented, closed set:** `Practice N`, `Qualification N`, `Qualification N Replay`, `Playoff N`,
+`Final N`. The prefix is a reliable type discriminator, which is what `Match.isPlayoff` relies on. `MatchId.fromLabel`
+did not recognise `Playoff` or `Final` at all until 18 Aug — it had an `ELIMINATION` case with a `// TODO : check`
+beside it, and Nexus never emits that word — so every playoff and final label parsed to null.
+
+**`replayOf`** marks a replayed match. Without it a replay is indistinguishable from a duplicate in the list.
+
+**Every timestamp in `times` is nullable**, including `estimatedStartTime` and `estimatedOnFieldTime`, which the app
+declared non-null until 18 Aug. See *Gotchas* — this could have blanked the entire schedule at a real event.
+`scheduledStartTime` is documented as unset for playoffs, which is exactly where real data first differs from a demo.
+
+**`times.actualCommitTime`** is set when the score is committed. It is the only *definitive* end-of-match signal Nexus
+gives; `MatchStatusHelper.isDone` previously inferred it from "estimated start plus three minutes is in the past" and
+now checks this first, falling back to the buffer heuristic only for events that don't commit promptly.
 
 **The actuals are a state machine.** Nexus *omits* each key until that transition really happens:
 
@@ -122,7 +145,42 @@ never expired — see *Gotchas*.
 | On field     | `+ actualOnFieldTime` |
 
 Status is fully derivable from which keys exist. For the notification poller the diff is **"which key appeared since the
-last poll"** — not string comparison against `status`.
+last poll"** — not string comparison against `status`. The spec warns that **any state transition is possible and some
+events skip `Now queuing` entirely**, so the poller must not assume the ladder is climbed one rung at a time.
+
+### Alliances
+
+**`GET /api/v1/event/{eventKey}/alliances`** returns playoff alliances as a two-dimensional array. This was assumed not
+to exist — the match objects carry no alliance field, and checking a demo event's playoff and final matches showed only
+`label`, `status`, `redTeams`, `blueTeams`, `times`, which looked conclusive. It is a separate endpoint.
+
+```json
+[
+  [
+    "3400",
+    "1900",
+    "200"
+  ],
+  [
+    "2000",
+    "2400",
+    "900"
+  ],
+  ...
+]
+```
+
+Alliance number is **index + 1**. Outer entries may be null (alliance not yet formed), inner entries may be null (slot
+not yet picked), and an alliance may have four teams once a backup is in play. The endpoint answers mid-selection, so
+partial data is normal rather than exceptional.
+
+**`redTeams` / `blueTeams` are null entirely for an undecided playoff alliance** — not an empty array, the whole field.
+So before selection reaches a match, neither the seed nor the teams are known, and there is nothing to fall back to.
+That is why the UI shows `A?` rather than reverting to `RED`.
+
+The join is done server-side in `Alliances.kt` and injected into `/event/{key}` as `redAlliance` / `blueAlliance`.
+Clients never see the raw array — a `List<List<String?>?>` is precisely the nested nullable-element shape SKIE mangles
+into `[Any]`.
 
 ---
 
@@ -157,6 +215,66 @@ The server is live at `https://nexus.jerryxf.net`, on Cloud Run in project `tech
   revision, and smoke-tests `/events` through the public hostname. Auth is a service account key in `GCP_SA_KEY`; it
   does not expire and the repo is public, so rotate it after the season or move to Workload Identity Federation. The
   deploy step passes **image only** — passing `env_vars` would replace the whole map rather than merge into it
+
+### Schedule, offline and alliances, 18 Aug
+
+The session that fixed the frozen schedule. Five items, in the order they were taken.
+
+**1. Nothing was updating.** Schedule, Dynamic Island and Live Activity were all frozen while the console logged
+`Updating content for activity …` every 15s. Two stacked causes, neither in Swift:
+
+- Cloudflare's zone-level **Browser Cache TTL** was rewriting every `Cache-Control` to `max-age=14400`. Confirmed on the
+  wire: origin values of 15s, 300s, 3600s *and no header at all* all arrived as four hours, including on a route that
+  does not exist. Fixed by setting Browser Cache TTL to **Respect Existing Headers**
+- `Constants.kt` installed **`HttpCache`**, which obeyed it faithfully and served the same `Event` from memory for four
+  hours without a request leaving the device. Every surface froze together because all three read that one object
+
+The edge cache was innocent throughout — it was expiring correctly on its 15s schedule the whole time. `/event/{key}`
+now sends `s-maxage=15, max-age=0, must-revalidate`, so shared caches still absorb the load and no client may reuse a
+response. `HttpCache` is gone and `HttpTimeout` is installed in its place.
+
+**2. Highlighted teams capped at three**, sorted by soonest ETA rather than team number, with a `+N` chip on both
+surfaces. A team on field sorts first for free, since its ETA is in the past. Ties break on team number — teams in the
+same match share an ETA exactly, and the card re-renders every 15s, so without a deterministic second key they swap
+places for no reason.
+
+**3. Playoff alliance numbers.** `RED` / `BLUE` become `A3` / `A?` in playoffs only, on match cards and the Lock Screen.
+In the Dynamic Island they sit *under* the match label as `A3 vs A5` rather than in the alliance rows, which are the
+width-critical element in the tightest region on screen. The extension can't reach `Match.isPlayoff`, so the labels are
+pre-rendered in the app and travel in `ContentState`; their presence is what the Dynamic Island tests for.
+
+**4. Pull to refresh.** The poll loop was inverted to sleep-then-refresh, seeded by one initial fetch and restarted by a
+`refreshTick` state bump. Pull-to-refresh awaits the real fetch — so the spinner lasts as long as the request — then
+bumps the tick, which resets the cadence rather than leaving an automatic poll queued a second behind. The same tick
+handles foregrounding and reconnect.
+
+**5. Offline.** The schedule now persists to Application Support and hydrates on launch, so a cold start in a dead zone
+shows the last known schedule with live timers instead of an error page. Highlighted teams persist too — they were
+`@State` and were lost on every launch. The poll backs off after consecutive failures and skips the request entirely
+when `NetworkMonitor` says there is no route. The header carries a freshness chip driven by `TimelineView`, which keeps
+counting when nothing else is happening — precisely the offline case it exists to show.
+
+The header also got **shorter** while gaining that chip: ~70pt to ~52pt, by moving to semantic fonts (`.title3`,
+`.footnote`), trimming padding, and putting the chip trailing on the event-key line rather than adding a third row.
+
+**Also fixed, found while reading the spec:**
+
+- **`MatchTimes` is fully nullable now.** It declared `estimatedStartTime` and `estimatedOnFieldTime` non-null; one null
+  from Nexus would have thrown, been swallowed by `getEventData`, and blanked the whole schedule behind *"Couldn't load
+  {event}"*. Call sites moved to a computed `times.startTime` fallback chain, so nothing had to start unwrapping
+- **`MatchId.fromShort` off-by-one.** `subSequence(1, length - 1)` dropped the last character as well as the first:
+  `q10` parsed as match **1**, `q24` as 2. Single-digit matches were correct, which is why it survived
+- **`getTBAKey` returns null for playoffs.** It was building `<event>_em7`, a key TBA has never used, so the request
+  404'd and looked like a missing match. TBA keys eliminations by bracket position; there is no arithmetic from Nexus's
+  sequential numbering. Now honest, with `Matches.kt` returning a 400 that says so
+- **`schedule/MatchUtils.kt` should be deleted.** Its only contents were `getPlayoffAlliance` and two helpers — 143
+  lines reconstructing alliance numbers from a hardcoded 2023 double-elimination bracket, with a self-admitted
+  placeholder bug, called from nowhere. Nexus answers this directly now. *(Verify this deletion actually landed — it was
+  not in the 18 Aug working diff.)*
+
+Verified by compiling the shared model and all four server files against Kotlin 2.4.10, Ktor 3.5.1 and
+kotlinx-serialization 1.11.0, and running 44 behaviour checks: alliance seeding and null handling, backup-robot majority
+voting, lossless passthrough of unmodelled keys, the all-null-times decode, and every `MatchId` case above.
 
 ### iOS, 18 Aug
 
@@ -231,7 +349,7 @@ it's noise on every build and wants `[sdk=iphoneos*]` scoping.
 
 Unrelated, for Samy: the Android build warns that AGP 9.0.1 is untested against compileSdk 37.0.
 
-### Server, this session
+### Server, hosting push (16–17 Aug)
 
 - **`Config.kt`** (new). All configuration from the environment: `NEXUS_API_KEY`,
   `TBA_API_KEY`, `DB_URL`, `DB_USER`, `DB_PASSWORD`. All required, validated at startup, missing ones reported together.
@@ -246,7 +364,7 @@ Unrelated, for Samy: the Android build warns that AGP 9.0.1 is untested against 
 - `logback.xml` added; logback was a dependency with no configuration
 - `Matches.kt` given the same error treatment for The Blue Alliance
 
-### Shared and client, this session
+### Shared and client, hosting push (16–17 Aug)
 
 - `Event.nowQueuing`; `MatchTimes.actual*`; `NexusEvent`; `EventSummary`
 - **`getEvents()`** in `Backend.kt` — flattens Nexus's map to a sorted
@@ -254,7 +372,7 @@ Unrelated, for Samy: the Android build warns that AGP 9.0.1 is untested against 
   rather than returning null
 - Default event ID `2026daly` → `demo1815`
 
-### iOS, this session
+### iOS, hosting push (16–17 Aug)
 
 - **`EventPickerView.swift`** (new). Sheet with search, sections grouped by start date, demo entry pinned at top with a
   `demo` prefix and number field, checkmark on current selection, distinct loading / failed / empty / no-match states
@@ -328,7 +446,25 @@ through the pooler — before this the schema had only ever existed in Kotlin.
 `[EventSummary]`, not `[Any]` — SKIE handled it, so the `List<String?>` → `[Any]` problem is specific to nullable
 element types. Live Activity starts and updates, and renders on both the Lock Screen and the Dynamic Island.
 
-**Still not verified:** anything on physical hardware.
+**Cache headers, 18 Aug.** After setting Browser Cache TTL to Respect Existing Headers:
+
+```
+GET /events            cache-control: max-age=300
+GET /event/demo1815    cache-control: max-age=15   (now s-maxage=15, max-age=0 after deploy)
+GET /nonexistent-route no cache-control
+cf-cache-status        EXPIRED -> HIT -> EXPIRED on a 15s cycle
+```
+
+Checking the header on the wire is the fastest way to rule the whole class of problem in or out:
+
+```bash
+curl -sSD - -o /dev/null https://nexus.jerryxf.net/event/demo1815
+```
+
+**Still not verified:** anything on physical hardware. **And alliance numbers against real data** — demo events have no
+alliance structure and aren't on TBA either, so `A?` is the *correct* output there and is indistinguishable from a
+broken join. The only way to test properly before Summer Scorcher is to create a demo event on frc.nexus and run
+alliance selection in it.
 
 ---
 
@@ -350,7 +486,9 @@ Ordered by what blocks what. Struck items are done.
 2. **Remove Firebase from the Xcode project** — **blocked on the transport decision.** `FirebaseMessaging` and
    `firebase-ios-sdk` are still in `project.pbxproj` and `Package.resolved`. They come out if iOS goes direct to APNs
    and stay if it goes through FCM, so this item cannot close until *Notifications* below is settled. Removal steps
-   under *Firebase, removed*
+   under *Firebase, removed*. **It is not inert while it waits:** clearing DerivedData forces SPM to re-resolve
+   `firebase-ios-sdk`, and on 18 Aug that failed and needed Xcode's build cache cleared by hand. A dependency nothing
+   imports is still a dependency that can break a clean build
 3. **Android event field** — `composeApp/src/androidMain/.../views/settings/SettingsView.kt:49`
    still has placeholder text `"e.g., 2026daly"`, now a dead event. Samy's file. The whole Android settings surface is
    scheduled to be translated from the iOS one in a later session, so this closes with that work
@@ -502,6 +640,33 @@ authors. That's separate from team-internal broadcasts.
 
 **Nexus purges past events.** No historical data, ever. Any hardcoded real event key is a time bomb.
 
+**A CDN can rewrite your `Cache-Control` and there is no sign of it in your code.** Cloudflare's zone-level Browser
+Cache TTL overrides what the origin sends — every value, and it *adds* one where the origin sent none. This froze the
+entire app for four hours at a time while the poll loop, the Live Activity updates and the logs all looked perfectly
+healthy, because the only broken thing was that no request was being sent. Check the wire before reading code:
+`curl -sSD - -o /dev/null <url>`. The setting lives under Caching → Configuration; Cache Rules can also set it.
+
+**Do not install `HttpCache` in a polling client.** Everything this app fetches is either live or mutable, so RFC 7234
+caching has nothing to offer it and one bad upstream header turns it into a four-hour freeze. Worse, a client TTL equal
+to the poll interval leaves no margin: a pull-to-refresh landing mid-window is answered from cache, and the spinner
+spins over unchanged data *intermittently*. Express the intent in headers instead — `s-maxage` for shared caches,
+`max-age=0` for private ones. That also reaches `NSURLSession`'s own disk-backed `URLCache`, which `commonMain` cannot
+configure.
+
+**Nexus types every timestamp as nullable and means it.** `kotlinx.serialization` throws on a null for a non-null field,
+`getEventData` swallows the exception and returns nil, and the app reports *"Couldn't load {event}. Check your
+connection, or the Event ID in Settings"* — pointing the user at two things that are both fine. **One null field
+anywhere in the payload blanks the entire schedule.** Demo events populate everything, so this is invisible in testing;
+`scheduledStartTime` is documented as unset for playoffs. Model the wire faithfully and put the convenience in computed
+properties.
+
+**`buildMap` fails to infer when there is nothing outside it to anchor `K` and `V`.** Assigning it to an untyped `val`
+whose `catch` branch `return`s leaves the builder with no expected type, and Kotlin cannot propagate constraints from a
+`put` nested two lambdas deep. The reported errors are misleading in a specific and expensive way: once `K` and `V`
+become error types, the compiler lists receiver mismatches against **`kotlinx.io.Source`** extensions that are merely on
+the classpath via Ktor, so a JSON file reports errors about byte streams. When an error names `Source` in code that
+touches no I/O, look upward for a failed inference. Explicit `mutableMapOf<K, V>()` removes the trap.
+
 **Demo events are not unauthenticated.** They need a valid API key like anything else. Assuming otherwise produced a
 long hunt for an "expired key" that was never expired: `/event/demo1815` returned 200 and `/event/2026daly` returned 424
 on the same afternoon, which looked like the demo event bypassing a dead key. It wasn't. The key was fine and `2026daly`
@@ -535,7 +700,18 @@ rm -rf ~/Library/Developer/Xcode/DerivedData/TechNexus-*
 Confirm with `strings <framework>/Modules/ComposeApp.swiftmodule/arm64-apple-ios-simulator.swiftmodule | grep -i
 "swift version"`. **This recurs in reverse when switching back to stable Xcode to archive** — same silent failure,
 opposite direction, at the worst possible moment. Both Xcodes also share one DerivedData folder, since the name hashes
-the project path.
+the project path, and `Index.noindex` inside it produces the duplicate "Also imported here" lines.
+
+This is now `scripts/relink_framework.sh`, which also refuses to run while Xcode is open (it recreates DerivedData
+mid-delete) and ends by comparing the framework's baked-in Swift version against the active `swiftc`. **A correct
+rebuild can be fast** — around 16 seconds — because `~/.konan` is untouched, so only your own code recompiles. Judge it
+by the SKIE warnings appearing in the output, not by the clock; a restored cache entry prints nothing.
+
+**Xcode 27 beta rewrites `project.pbxproj` cosmetically.** It renames `PBXFileSystemSynchronizedBuildFileExceptionSet`
+comments to descriptive form and drops empty `explicitFileTypes = {}` / `explicitFolders = ()` entries. This is
+*benign* — not the folder-group corruption the guarded edit script exists to catch. What matters is that
+`membershipExceptions` still lists `ScheduleTab/ScheduleActivityAttributes.swift` for the extension target; if that
+disappears, the extension loses the shared `ContentState` and fails to build.
 
 **Suspend functions need `@Throws` or the continuation leaks.** A Kotlin suspend function without
 `@Throws(Throwable::class)` cannot deliver an exception to Swift. It does not crash — the coroutine's exception goes to
@@ -633,6 +809,7 @@ README.md                                       overview, modules, config, route
 Style_iOS.md                                    SwiftUI conventions, deployment target
 docs/PRIVACY_POLICY_SPEC.md                     content brief for jerryxf.net/technexus/privacy
 scripts/pin_deployment_target.py                guarded pbxproj edit, idempotent
+scripts/relink_framework.sh                     NEW — SKIE framework rebuild after xcode-select
 
 iosApp/TechNexus.xcodeproj/project.pbxproj      signing, deployment target, folder groups
 iosApp/iosApp/
@@ -644,14 +821,17 @@ iosApp/iosApp/
   NetworkMonitor.swift                          connectivity
   Shared/SectionTitle.swift                     section header component
   Utils/TimeFormatting.swift                    cached formatters
+  Utils/ColorHex.swift                          NEW — Color <-> hex, app target
   ScheduleTab/
-    ScheduleView.swift                          15s poll loop, error handling
+    ScheduleView.swift                          poll loop, pull-to-refresh,
+                                                disk hydration, backoff
     ScheduleBodyView.swift                      list, stale banner, empty states
-    ScheduleHeaderView.swift                    event key, current match
+    ScheduleHeaderView.swift                    event key, match, freshness chip
     HighlightTeamsBar.swift                     team highlighting
-    MatchStatusHelper.swift                     latestMatch + status display (app)
+    HighlightedTeamsStore.swift                 NEW — persists highlighted teams
+    MatchStatusHelper.swift                     latestMatch, status, alliance labels
     ScheduleActivityAttributes.swift            shared with the extension
-    ScheduleLiveActivityManager.swift           activity lifecycle
+    ScheduleLiveActivityManager.swift           activity lifecycle, top-3 cap
     Components/MatchCardView.swift              match card
     Components/TeamPill.swift                   team chip
     Components/TimingCarouselView.swift         estimated times
@@ -675,16 +855,17 @@ shared/src/commonMain/kotlin/.../shared/
 composeApp/src/commonMain/kotlin/.../
   Backend.kt                                    API client, getEvents
   Storage.kt                                    settings, default event ID
-  Constants.kt                                  Android status colours
-  schedule/MatchUtils.kt                        shared match logic
+  ScheduleCache.kt                              NEW — last schedule on disk
+  Constants.kt                                  HTTP client, Android status colours
   batteries/BatteryManager.kt                   battery tracking
   statbotics/                                   Samy's Statbotics integration
 composeApp/src/androidMain/kotlin/.../views/    Android Compose UI
 
 server/src/main/kotlin/.../server/
   Application.kt                                startup, DB connect, HTTP client
-  Config.kt                                     NEW — env-var config
-  Nexus.kt                                      NEW — proxy + status mapping
+  Config.kt                                     env-var config
+  Nexus.kt                                      proxy + status mapping
+  Alliances.kt                                  NEW — playoff alliance join
   Events.kt                                     /events, /event/{event}
   Matches.kt                                    TBA scores
   Batteries.kt                                  battery CRUD routes
@@ -702,8 +883,10 @@ server/src/main/resources/logback.xml           NEW
 - **Samy** — Android/Compose, Statbotics. Can ship server changes by merging to `main` — no GCP access needed
 
 **There is no deadline.** 28 August — Summer Scorcher — is the first chance to run the newer surface (redesigned Live
-Activity, event picker, `nowQueuing`, `actual*` times) against a live event, and everything added since Las Vegas is
-untested against real data, so it's worth using. It is not a ship date and nothing should be rushed to meet it.
+Activity, event picker, `nowQueuing`, `actual*` times, playoff alliance numbers, offline behaviour) against a live
+event, and everything added since Las Vegas is untested against real data, so it's worth using. Playoff alliances in
+particular cannot be meaningfully tested any other way short of building a demo event and running selection in it. It is
+not a ship date and nothing should be rushed to meet it.
 
 The real gate on submission is the September Apple event: macOS 27 and Xcode 27 reaching general availability is what
 makes a submittable toolchain exist. The plan is to have everything finished and verified before then, and submit once

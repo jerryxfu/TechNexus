@@ -20,7 +20,7 @@ struct ScheduleBodyView: View {
                 )
             }
             .sorted {
-                $0.times.estimatedStartTime < $1.times.estimatedStartTime
+                $0.times.startTime < $1.times.startTime
             }
 
             let upcomingMatches = event.matches.filter {

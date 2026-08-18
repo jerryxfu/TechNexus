@@ -3,6 +3,7 @@ import SwiftUI
 
 enum MatchStatusHelper {
     /// A match is "done" when:
+    /// - Its score has been committed, OR
     /// - Its status is "On field", AND
     ///   - Another "On field" match has a later start time, OR
     ///   - Its estimated start time + buffer is in the past
@@ -10,19 +11,25 @@ enum MatchStatusHelper {
         _ match: Match,
         currentOnFieldStart: Int64?
     ) -> Bool {
+        // Nexus records actualCommitTime when the score is posted, which is the
+        // only definitive end-of-match signal it gives us. Checked first and
+        // independently of status: a committed match is over regardless of what
+        // the queuing status still says.
+        if match.times.isFinished { return true }
+
         guard match.status.lowercased() == "on field" else { return false }
 
         // Superseded by a newer "On field" match
         if let currentStart = currentOnFieldStart,
-            match.times.estimatedStartTime < currentStart
+            match.times.startTime < currentStart
         {
             return true
         }
 
-        // Match start + buffer is in the past
+        // Match start + buffer is in the past. A heuristic, and only reached
+        // when the event hasn't committed a score yet.
         let matchDurationBufferMs: Int64 = 3 * 60 * 1000
-        let estimatedEnd =
-            match.times.estimatedStartTime + matchDurationBufferMs
+        let estimatedEnd = match.times.startTime + matchDurationBufferMs
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         return nowMs > estimatedEnd
     }
@@ -31,7 +38,7 @@ enum MatchStatusHelper {
     static func currentOnFieldStart(in matches: [Match]) -> Int64? {
         matches
             .filter { $0.status.lowercased() == "on field" }
-            .map { $0.times.estimatedStartTime }
+            .map { $0.times.startTime }
             .max()
     }
 
@@ -41,7 +48,7 @@ enum MatchStatusHelper {
         currentOnFieldStart: Int64?
     ) -> Bool {
         match.status.lowercased() == "on field"
-            && match.times.estimatedStartTime == currentOnFieldStart
+            && match.times.startTime == currentOnFieldStart
             && !isDone(match, currentOnFieldStart: currentOnFieldStart)
     }
 
@@ -66,9 +73,7 @@ enum MatchStatusHelper {
         } else if let currentOnField =
             event.matches
             .filter({ $0.status.lowercased() == "on field" })
-            .max(by: {
-                $0.times.estimatedStartTime < $1.times.estimatedStartTime
-            })
+            .max(by: { $0.times.startTime < $1.times.startTime })
         {
             return currentOnField
         }
@@ -119,5 +124,26 @@ enum MatchStatusHelper {
                 currentOnFieldStart: currentStart
             )
         )
+    }
+
+    // MARK: - Alliance labels
+
+    /// What to call an alliance on this match.
+    ///
+    /// `RED` / `BLUE` in practice and qualifications, where the field side is
+    /// the only thing that identifies an alliance. `A3` in playoffs, where the
+    /// seed is what people actually say out loud — and `A?` when it's a playoff
+    /// match whose alliance isn't decided yet.
+    ///
+    /// There is deliberately no fall back to `RED` during playoffs. Nexus
+    /// returns the entire team array as null for an undecided playoff alliance,
+    /// so at that point we know neither the seed nor the teams; showing `RED`
+    /// would be answering a question nobody asked with the one fact that isn't
+    /// in doubt.
+    static func allianceLabel(for match: Match, isRed: Bool) -> String {
+        guard match.isPlayoff else { return isRed ? "RED" : "BLUE" }
+        guard let seed = (isRed ? match.redAlliance : match.blueAlliance)
+        else { return "A?" }
+        return "A\(seed.intValue)"
     }
 }

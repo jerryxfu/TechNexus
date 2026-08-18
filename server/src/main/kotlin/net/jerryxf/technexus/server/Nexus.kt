@@ -9,7 +9,14 @@ import io.ktor.server.response.*
 private const val NEXUS_API = "https://frc.nexus/api/v1"
 
 /**
- * Forwards a GET to frc.nexus and relays the result.
+ * Forwards a GET to frc.nexus and returns the body on success.
+ *
+ * On any failure this **responds to the call itself** and returns null, so
+ * callers can write `val body = nexusBody(call, path) ?: return@get`.
+ *
+ * Split out of [proxyNexus] so a route can transform the payload before relaying
+ * it — see `enrichWithAlliances`. Routes that relay verbatim should keep calling
+ * [proxyNexus].
  *
  * The previous version collapsed every non-200 into a bare 424 and sent the real
  * status and body to `println`. That cost us weeks: `/event/2026daly` was
@@ -24,7 +31,7 @@ private const val NEXUS_API = "https://frc.nexus/api/v1"
  *   caller's fault and shouldn't look like one. Logged at error level.
  * - anything else becomes 502.
  */
-suspend fun proxyNexus(call: ApplicationCall, path: String) {
+suspend fun nexusBody(call: ApplicationCall, path: String): String? {
     val response = try {
         client.get("$NEXUS_API/$path") {
             headers.append("Nexus-Api-Key", Config.nexusApiKey)
@@ -32,17 +39,10 @@ suspend fun proxyNexus(call: ApplicationCall, path: String) {
     } catch (e: Exception) {
         call.application.log.error("Could not reach frc.nexus for /{}", path, e)
         call.respond(HttpStatusCode.BadGateway, "Could not reach frc.nexus.")
-        return
+        return null
     }
 
-    if (response.status == HttpStatusCode.OK) {
-        call.respondText(
-            response.bodyAsText(),
-            ContentType.Application.Json,
-            HttpStatusCode.OK
-        )
-        return
-    }
+    if (response.status == HttpStatusCode.OK) return response.bodyAsText()
 
     val body = response.bodyAsText()
     when (response.status) {
@@ -66,4 +66,11 @@ suspend fun proxyNexus(call: ApplicationCall, path: String) {
             call.respond(HttpStatusCode.BadGateway, "frc.nexus returned ${response.status.value}.")
         }
     }
+    return null
+}
+
+/** Relay a Nexus response verbatim. */
+suspend fun proxyNexus(call: ApplicationCall, path: String) {
+    val body = nexusBody(call, path) ?: return
+    call.respondText(body, ContentType.Application.Json, HttpStatusCode.OK)
 }

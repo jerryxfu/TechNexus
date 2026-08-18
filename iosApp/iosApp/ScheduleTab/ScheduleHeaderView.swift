@@ -3,14 +3,42 @@ import SwiftUI
 
 struct ScheduleHeaderView: View {
     let event: Event?
+
+    /// When this phone last got a response. Nil until the first success, which
+    /// is the only time the chip is hidden, after that it only ever grows.
+    let lastFetch: Date?
+
     @ObservedObject private var network = NetworkMonitor.shared
     @State private var isDimmed = false
 
+    /// Past this, the data is old enough to say so. Six missed polls: long
+    /// enough that a single dropped request doesn't cry wolf, short enough to
+    /// notice before you walk to the wrong field.
+    private static let staleAfter: TimeInterval = 90
+
+    /// Reserved width for the chip, mirrored on the leading side so the event
+    /// key stays optically centred. Fixed rather than intrinsic because the chip
+    /// changes width as it counts ("8s" to "12m"), and a centred title that
+    /// shifts sideways every fifteen seconds is worse than a little dead space.
+    private static let chipWidth: CGFloat = 56
+
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 2) {
             if let event {
-                Text(event.eventKey)
-                    .font(.system(size: 24, weight: .bold))
+                HStack(spacing: 6) {
+                    Color.clear
+                        .frame(width: Self.chipWidth, height: 0)
+
+                    Text(event.eventKey)
+                        .font(.title3)
+                        .bold()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity)
+
+                    freshnessChip
+                        .frame(width: Self.chipWidth, alignment: .trailing)
+                }
 
                 // skippingFinished so the header moves on to the next
                 // queuing match instead of sitting on grey "Done" forever.
@@ -35,26 +63,71 @@ struct ScheduleHeaderView: View {
                             }
                         }
                     }
-                    .font(.system(size: 14))
+                    .font(.footnote)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 } else {
-                    Text(
-                        "\(event.matches.count) matches · updated \(TimeFormatting.formatDateTime(event.dataAsOfTime))"
-                    )
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+                    Text("\(event.matches.count) matches")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             } else {
                 Text("Schedule")
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.title3)
+                    .bold()
                 Text("Loading...")
-                    .font(.system(size: 14))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
+        .padding(.top, 2)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: - Freshness
+
+    /// How long ago the last response arrived.
+    ///
+    /// `TimelineView` rather than a `Timer` or a poll-driven state change: the
+    /// text has to keep counting up when nothing else is happening, and "nothing
+    /// else is happening" is precisely the offline case this exists to show. A
+    /// state-driven version would freeze at whatever it said when the last
+    /// refresh failed, which is the opposite of the intent.
+    ///
+    /// Scheduled from `lastFetch` so ticks land on the second the label changes.
+    @ViewBuilder
+    private var freshnessChip: some View {
+        if let lastFetch {
+            TimelineView(.periodic(from: lastFetch, by: 15)) { context in
+                let age = max(0, context.date.timeIntervalSince(lastFetch))
+                let isStale = age > Self.staleAfter
+
+                HStack(spacing: 2) {
+                    Image(
+                        systemName: isStale
+                            ? "icloud.slash" : "arrow.clockwise"
+                    )
+                    Text(Self.ageText(age))
+                }
+                .font(.caption2)
+                .fontWeight(.medium)
+                .monospacedDigit()
+                .foregroundStyle(isStale ? Color.orange : Color.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityLabel("Last updated \(Self.ageText(age)) ago")
+            }
+        }
+    }
+
+    /// Deliberately terse, the chip has 56pt ish. "now", "45s", "12m", "3h".
+    private static func ageText(_ age: TimeInterval) -> String {
+        if age < 10 { return "now" }
+        if age < 60 { return "\(Int(age))s" }
+        if age < 3600 { return "\(Int(age / 60))m" }
+        return "\(Int(age / 3600))h"
     }
 
     /// Driven by a value that flips on both appear and disappear,

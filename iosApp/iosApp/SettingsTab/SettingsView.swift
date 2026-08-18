@@ -271,6 +271,13 @@ struct SettingsView: View {
 
         // Held in @AppStorage, so it's outside resetToDefaults()' reach.
         liveActivityEnabled = LiveActivityPreference.defaultValue
+
+        // Neither of these lives in Storage.kt either. The highlighted
+        // teams are the user's own data and a reset that left them behind
+        // would look like it had silently failed; the schedule cache must
+        // go with the event ID it was fetched under.
+        HighlightedTeamsStore.clear()
+        ScheduleCacheKt.clearCachedSchedule()
     }
 }
 

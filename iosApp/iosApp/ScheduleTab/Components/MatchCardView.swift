@@ -70,8 +70,8 @@ struct MatchCardView: View {
     /// If queue time is unknown, fall back to the start time.
     private var isFarFromQueuing: Bool {
         let queueTimeMs =
-            match.times.estimatedQueueTime?.int64Value
-            ?? match.times.estimatedStartTime
+            match.times.queueTime?.int64Value
+            ?? match.times.startTime
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         let threshold: Int64 = 10 * 60 * 1000
         return (queueTimeMs - nowMs) > threshold
@@ -134,7 +134,7 @@ struct MatchCardView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text(
-                    TimeFormatting.relativeTime(match.times.estimatedStartTime)
+                    TimeFormatting.relativeTime(match.times.startTime)
                 )
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
@@ -198,8 +198,23 @@ struct MatchCardView: View {
             }
 
             HStack(spacing: 6) {
-                teamRow(label: "RED", teams: redTeams, color: .red)
-                teamRow(label: "BLUE", teams: blueTeams, color: .blue)
+                // "RED"/"BLUE" in quals, "A3"/"A?" in playoffs.
+                teamRow(
+                    label: MatchStatusHelper.allianceLabel(
+                        for: match,
+                        isRed: true
+                    ),
+                    teams: redTeams,
+                    color: .red
+                )
+                teamRow(
+                    label: MatchStatusHelper.allianceLabel(
+                        for: match,
+                        isRed: false
+                    ),
+                    teams: blueTeams,
+                    color: .blue
+                )
             }
 
             TimingCarouselView(times: match.times)

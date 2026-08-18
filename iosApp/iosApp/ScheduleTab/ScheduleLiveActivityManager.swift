@@ -10,6 +10,14 @@ final class ScheduleLiveActivityManager {
 
     private var currentActivity: Activity<ScheduleActivityAttributes>?
 
+    /// How many highlighted teams reach the Live Activity.
+    ///
+    /// The Lock Screen could hold more, but the Dynamic Island's bottom region
+    /// cannot, and one cap in one place beats two surfaces disagreeing. It also
+    /// bounds the payload, which stops being cosmetic once these go out as
+    /// ActivityKit pushes against a 4 KB budget.
+    private static let maxHighlightedTeams = 3
+
     private init() {
         // Adopt an existing *active* activity so a relaunch doesn't create a duplicate.
         // Ended/stale ones must not be adopted: update() on a dead activity does nothing, and we'd never request a fresh one.
@@ -84,6 +92,8 @@ final class ScheduleLiveActivityManager {
     }
 
     /// Past this point the system marks the card stale rather than showing data that may no longer be true.
+    /// Recomputed on every successful update, so it means "five minutes since we
+    /// last heard anything", which is the intended reading.
     private static func staleDate() -> Date {
         Date().addingTimeInterval(5 * 60)
     }
@@ -120,9 +130,18 @@ final class ScheduleLiveActivityManager {
             matchStatus: statusText(for: latest, in: event),
             redTeams: redTeams,
             blueTeams: blueTeams,
-            startTimeEpoch: latest.times.estimatedStartTime,
-            highlightedTeamsSummary: highlighted,
-            eventKey: event.eventKey
+            startTimeEpoch: latest.times.startTime,
+            highlightedTeamsSummary: highlighted.shown,
+            eventKey: event.eventKey,
+            redAllianceLabel: MatchStatusHelper.allianceLabel(
+                for: latest,
+                isRed: true
+            ),
+            blueAllianceLabel: MatchStatusHelper.allianceLabel(
+                for: latest,
+                isRed: false
+            ),
+            highlightedOverflowCount: highlighted.overflow
         )
     }
 
@@ -140,11 +159,21 @@ final class ScheduleLiveActivityManager {
         return match.status
     }
 
+    /// The highlighted teams whose next match comes soonest, capped, plus how
+    /// many were left out.
+    ///
+    /// Sorted by ETA rather than by team number, because "which of my teams do I
+    /// need to care about right now" is a question about time. A team currently
+    /// on field sorts to the front for free, its ETA is in the past, with no special case needed.
+    ///
+    /// Ties break on team number. Teams in the same match share an ETA exactly,
+    /// and the card re-renders every fifteen seconds, so without a deterministic
+    /// second key they would swap places on screen for no reason.
     private func buildHighlightedSummary(
         event: Event,
         highlightedTeams: [String: Color]
-    ) -> [HighlightedTeamInfo] {
-        guard !highlightedTeams.isEmpty else { return [] }
+    ) -> (shown: [HighlightedTeamInfo], overflow: Int?) {
+        guard !highlightedTeams.isEmpty else { return ([], nil) }
 
         let currentOnFieldStart = MatchStatusHelper.currentOnFieldStart(
             in: event.matches
@@ -178,17 +207,29 @@ final class ScheduleLiveActivityManager {
                     matchLabel: match.label,
                     status: status,
                     statusEtaEpoch: statusEtaEpoch(for: match, status: status),
-                    colorHex: hexString(from: color)
+                    colorHex: ColorHex.string(from: color)
                 )
             )
         }
 
-        return result.sorted { $0.team < $1.team }
+        let sorted = result.sorted { lhs, rhs in
+            // A team with no ETA at all sorts last rather than first, which is
+            // what .max does here — nil means "we don't know when", not "now".
+            let left = lhs.statusEtaEpoch ?? .max
+            let right = rhs.statusEtaEpoch ?? .max
+            if left != right { return left < right }
+            return lhs.team < rhs.team
+        }
+
+        let shown = Array(sorted.prefix(Self.maxHighlightedTeams))
+        let dropped = sorted.count - shown.count
+        return (shown, dropped > 0 ? dropped : nil)
     }
 
     private func teamList(_ teams: [Any]?) -> [String] {
         guard let teams else {
             // Null alliance list should render as one fallback bar/pill.
+            // In playoffs this is also what an undecided alliance looks like.
             return ["N/A"]
         }
         var result: [String] = []
@@ -203,37 +244,17 @@ final class ScheduleLiveActivityManager {
     {
         switch status.lowercased() {
         case "queuing soon", "now queuing":
-            return match.times.estimatedQueueTime?.int64Value
-                ?? match.times.estimatedOnDeckTime?.int64Value
-                ?? match.times.estimatedOnFieldTime
+            return match.times.queueTime?.int64Value
+                ?? match.times.onDeckTime?.int64Value
+                ?? match.times.onFieldTime?.int64Value
         case "on deck":
-            return match.times.estimatedOnDeckTime?.int64Value
-                ?? match.times.estimatedOnFieldTime
+            return match.times.onDeckTime?.int64Value
+                ?? match.times.onFieldTime?.int64Value
         case "on field":
-            return match.times.estimatedOnFieldTime
+            return match.times.onFieldTime?.int64Value
         default:
-            return match.times.estimatedStartTime
+            return match.times.hasTiming ? match.times.startTime : nil
         }
-    }
-
-    private func hexString(from color: Color) -> String {
-        let uiColor = UIColor(color)
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-
-        guard uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        else {
-            return "#FFFF00"
-        }
-
-        return String(
-            format: "#%02X%02X%02X",
-            Int(red * 255),
-            Int(green * 255),
-            Int(blue * 255)
-        )
     }
 }
 

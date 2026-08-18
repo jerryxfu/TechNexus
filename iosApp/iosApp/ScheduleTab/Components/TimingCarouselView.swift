@@ -13,24 +13,31 @@ struct TimingCarouselView: View {
     }
 
     private var entries: [TimingEntry] {
+        // Every Nexus timestamp is nullable, so every row is conditional.
+        // On Field and Start used to be appended unconditionally because
+        // the model declared them non-null; a playoff match with no
+        // published schedule would have shown 1 Jan 1970.
         var result: [TimingEntry] = []
-        if let queue = times.estimatedQueueTime?.int64Value {
+        if let queue = times.queueTime?.int64Value {
             result.append(TimingEntry(label: "Queue", epoch: queue))
         }
-        if let onDeck = times.estimatedOnDeckTime?.int64Value {
+        if let onDeck = times.onDeckTime?.int64Value {
             result.append(TimingEntry(label: "On Deck", epoch: onDeck))
         }
-        result.append(
-            TimingEntry(label: "On Field", epoch: times.estimatedOnFieldTime)
-        )
-        result.append(
-            TimingEntry(label: "Start", epoch: times.estimatedStartTime)
-        )
+        if let onField = times.onFieldTime?.int64Value {
+            result.append(TimingEntry(label: "On Field", epoch: onField))
+        }
+        if let start = times.estimatedStartTime?.int64Value
+            ?? times.actualStartTime?.int64Value
+        {
+            result.append(TimingEntry(label: "Start", epoch: start))
+        }
         return result
     }
 
     /// Index of the next upcoming timing (or last one if all have passed)
     private var nextUpcomingIndex: Int {
+        guard !entries.isEmpty else { return 0 }
         let now = Date().timeIntervalSince1970 * 1000
         if let idx = entries.firstIndex(where: { Double($0.epoch) > now }) {
             return idx

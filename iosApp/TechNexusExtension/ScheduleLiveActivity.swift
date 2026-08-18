@@ -62,11 +62,40 @@ struct ScheduleLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 8) {
                         HStack(alignment: .center, spacing: 10) {
-                            Text(context.state.matchLabel)
-                                .font(.headline)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(context.state.matchLabel)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+
+                                // Playoffs only. The alliance labels are nil
+                                // outside playoffs, so their presence is the
+                                // test — the extension can't reach
+                                // Match.isPlayoff, and shipping a second copy of
+                                // the playoff rule here is exactly how the
+                                // status colours drifted.
+                                //
+                                // Sits under the label rather than inside the
+                                // alliance rows: the rows are the width-critical
+                                // element in the tightest region on the screen,
+                                // and there is free vertical space beside them.
+                                if let red = context.state.redAllianceLabel,
+                                    let blue = context.state.blueAllianceLabel
+                                {
+                                    HStack(spacing: 3) {
+                                        Text(red).foregroundStyle(.red)
+                                        Text("vs").foregroundStyle(.secondary)
+                                        Text(blue).foregroundStyle(.blue)
+                                    }
+                                    // Fixed size: Dynamic Island regions have
+                                    // hard pixel budgets and barely honour
+                                    // Dynamic Type.
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
                             VStack(spacing: 3) {
                                 allianceRow(
@@ -103,6 +132,7 @@ struct ScheduleLiveActivity: Widget {
                         if !context.state.highlightedTeamsSummary.isEmpty {
                             highlightedTeamsRow(
                                 context.state.highlightedTeamsSummary,
+                                overflow: context.state.highlightedOverflowCount,
                                 isStale: context.isStale
                             )
                         }
@@ -166,6 +196,7 @@ struct ScheduleLiveActivity: Widget {
 
     private func highlightedTeamsRow(
         _ teams: [HighlightedTeamInfo],
+        overflow: Int?,
         isStale: Bool
     ) -> some View {
         HStack(spacing: 3) {
@@ -191,6 +222,17 @@ struct ScheduleLiveActivity: Widget {
                 .background(tint.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 4))
             }
+
+            // The summary is capped at three. Saying so is cheap and stops the
+            // card from quietly implying those are all the teams being tracked.
+            if let overflow, overflow > 0 {
+                Text("+\(overflow)")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+            }
         }
     }
 }
@@ -210,8 +252,19 @@ private struct ScheduleLockScreenView: View {
             header
 
             HStack(spacing: 6) {
-                teamsBox(state.redTeams, color: .red, label: "RED")
-                teamsBox(state.blueTeams, color: .blue, label: "BLUE")
+                // "RED"/"BLUE" in quals, "A3"/"A?" in playoffs. The app decides
+                // which; see MatchStatusHelper.allianceLabel. The ?? only covers
+                // activities started before these fields existed.
+                teamsBox(
+                    state.redTeams,
+                    color: .red,
+                    label: state.redAllianceLabel ?? "RED"
+                )
+                teamsBox(
+                    state.blueTeams,
+                    color: .blue,
+                    label: state.blueAllianceLabel ?? "BLUE"
+                )
             }
 
             if !state.highlightedTeamsSummary.isEmpty {
@@ -306,6 +359,12 @@ private struct ScheduleLockScreenView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
+            }
+
+            if let overflow = state.highlightedOverflowCount, overflow > 0 {
+                Text("+\(overflow) more")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
         }
     }
