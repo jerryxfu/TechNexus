@@ -244,7 +244,11 @@ final class ScheduleLiveActivityManager {
 enum LiveActivityPreference {
     static let key = "liveActivityEnabled"
 
+    /// One source for the default. `@AppStorage` in Settings, the reader below,
+    /// and "Reset to defaults" all read this rather than repeating a literal.
+    static let defaultValue = true
+
     static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: key) as? Bool ?? true
+        UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue
     }
 }

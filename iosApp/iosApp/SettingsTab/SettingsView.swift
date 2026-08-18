@@ -1,24 +1,33 @@
 import ComposeApp
 import SwiftUI
 
+/// Settings apply as they're made. There is no Save button, for the same reason
+/// the Settings app doesn't have one: nothing here is destructive, expensive, or only meaningful as a set.
+///
+/// The event picker commits on selection.
+/// The team number commits when the field loses focus or the app leaves the foreground (never per keystroke),
+/// or any future subscription built on it would fire four times.
 struct SettingsView: View {
     @State private var eventId = ""
     @State private var teamNumber = ""
-    @State private var savedEventId = ""
-    @State private var savedTeamNumber = ""
-    @State private var isSaved = false
-    @State private var resetTask: Task<Void, Never>?
+
+    /// Not shown anywhere. This exists only so `commitTeamNumber()` is idempotent:
+    /// it's called from focus changes and scene phase changes, both of which fire
+    /// on first appearance and on every backgrounding, and neither should write
+    /// when nothing was typed.
+    @State private var committedTeamNumber = ""
+
     @State private var showEventPicker = false
+    @State private var showResetConfirmation = false
+
     @AppStorage(LiveActivityPreference.key)
-    private var liveActivityEnabled = true
+    private var liveActivityEnabled = LiveActivityPreference.defaultValue
+
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedField: Field?
 
     private enum Field {
         case teamNumber
-    }
-
-    private var hasChanges: Bool {
-        eventId != savedEventId || teamNumber != savedTeamNumber
     }
 
     var body: some View {
@@ -27,6 +36,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     generalSection
                     liveActivitySection
+                    resetSection
                 }
                 .padding(16)
             }
@@ -35,14 +45,18 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
-            .animation(.default, value: hasChanges)
-            .animation(.default, value: isSaved)
         }
         .sheet(isPresented: $showEventPicker) {
-            EventPickerView(currentEventId: eventId) { eventId = $0 }
+            EventPickerView(currentEventId: eventId, onSelect: selectEvent)
         }
         .onAppear(perform: loadSettings)
         // task(id:) rather than onChange — one API that works on iOS 16.
+        .task(id: focusedField) {
+            if focusedField == nil { commitTeamNumber() }
+        }
+        .task(id: scenePhase) {
+            if scenePhase != .active { commitTeamNumber() }
+        }
         .task(id: liveActivityEnabled) {
             if !liveActivityEnabled {
                 await ScheduleLiveActivityManager.shared.end()
@@ -71,10 +85,12 @@ struct SettingsView: View {
                 .focused($focusedField, equals: .teamNumber)
                 .keyboardType(.numberPad)
             }
-            Text("The event determines which schedule is loaded.")
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 4)
+            Text(
+                "The event determines which schedule is loaded. Leave the team number empty for no highlighting."
+            )
+            .font(.footnote)
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 4)
         }
     }
 
@@ -98,25 +114,43 @@ struct SettingsView: View {
         }
     }
 
+    /// The one control here that warrants a confirmation. Everything else applies silently because it's trivially reversible
+    private var resetSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsCard {
+                Button {
+                    focusedField = nil
+                    showResetConfirmation = true
+                } label: {
+                    Text("Reset to defaults")
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Text("Restores the default event, clears your team number, and turns the Live Activity back on.")
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 4)
+        }
+        .confirmationDialog(
+            "Reset all settings to their defaults?",
+            isPresented: $showResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive, action: resetToDefaults)
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        if hasChanges {
-            ToolbarItem(id: "discard", placement: .cancellationAction) {
-                Button(action: discard) {
-                    Image(systemName: "arrow.uturn.backward")
-                }
-            }
-        }
-        if hasChanges || isSaved {
-            ToolbarItem(id: "save", placement: .confirmationAction) {
-                Button(action: save) {
-                    saveIcon
-                }
-                .tint(isSaved ? .green : .accentColor)
-            }
-        }
         ToolbarItemGroup(placement: .keyboard) {
             Spacer()
             Button("Done") { focusedField = nil }
@@ -124,44 +158,47 @@ struct SettingsView: View {
         }
     }
 
-    private var saveIcon: some View {
-        Image(systemName: isSaved ? "checkmark" : "square.and.arrow.down")
-            .modifier(ReplaceSymbolTransition())
-    }
-
     // MARK: - Actions
 
     private func loadSettings() {
         let settings = SettingsManager.shared.settings
-        savedEventId = settings.getEventId()
-        savedTeamNumber = settings.getTeamNumber()
-        eventId = savedEventId
-        teamNumber = savedTeamNumber
+        eventId = settings.getEventId()
+        teamNumber = settings.getTeamNumber()
+        committedTeamNumber = teamNumber
     }
 
-    private func save() {
-        guard hasChanges else { return }
+    /// An atomic choice from a finite list, so it persists on selection. Waiting
+    /// for a blur would never fire — dismissing a sheet isn't a focus change.
+    private func selectEvent(_ selected: String) {
+        eventId = selected
+        SettingsManager.shared.settings.setEventId(eventId: selected)
+    }
+
+    private func commitTeamNumber() {
+        // numberPad doesn't stop a paste, and a team number that isn't digits is
+        // a subscription key waiting to fail. Cleaned on blur rather than while
+        // typing, so the caret never jumps.
+        let cleaned = teamNumber.filter(\.isNumber)
+        if cleaned != teamNumber { teamNumber = cleaned }
+
+        guard cleaned != committedTeamNumber else { return }
+        SettingsManager.shared.settings.setTeamNumber(teamNumber: cleaned)
+        committedTeamNumber = cleaned
+    }
+
+    private func resetToDefaults() {
         focusedField = nil
 
         let settings = SettingsManager.shared.settings
-        settings.setEventId(eventId: eventId)
-        settings.setTeamNumber(teamNumber: teamNumber)
-        savedEventId = eventId
-        savedTeamNumber = teamNumber
-        isSaved = true
+        settings.resetToDefaults()
 
-        resetTask?.cancel()
-        resetTask = Task {
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            isSaved = false
-        }
-    }
+        // Read back rather than assuming, the defaults live in Storage.kt.
+        eventId = settings.getEventId()
+        teamNumber = settings.getTeamNumber()
+        committedTeamNumber = teamNumber
 
-    private func discard() {
-        focusedField = nil
-        eventId = savedEventId
-        teamNumber = savedTeamNumber
+        // Held in @AppStorage, so it's outside resetToDefaults()' reach.
+        liveActivityEnabled = LiveActivityPreference.defaultValue
     }
 }
 
@@ -174,21 +211,6 @@ private struct SettingsCard<Content: View>: View {
         VStack(spacing: 0) { content }
             .background(Color(.secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
-/// The availability check lives in a modifier, not around the `Image`.
-/// Branching on `if #available` at the view level produces a different identity
-/// per branch, so SwiftUI tears the image down and rebuilds it instead of
-/// morphing — which silently kills the very symbol effect the branch exists to
-/// apply. One `Image`, conditionally modified.
-private struct ReplaceSymbolTransition: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 17.0, *) {
-            content.contentTransition(.symbolEffect(.replace.byLayer.downUp))
-        } else {
-            content
-        }
     }
 }
 
