@@ -1,6 +1,7 @@
 # TechNexus — handoff
 
-Last updated 17 Aug 2026. The server is deployed and live at `nexus.jerryxf.net`; the iOS app builds and runs.
+Last updated 18 Aug 2026. The server is deployed and live at `nexus.jerryxf.net`; the iOS app builds and runs against a
+pinned iOS 16.2 deployment target.
 
 The single handoff document for this project. `README.md` covers building and running; `Style_iOS.md` covers SwiftUI
 conventions. This covers state, blockers, decisions and the things that were expensive to learn.
@@ -23,7 +24,8 @@ It cannot be submitted yet. One blocker is outside the code; the rest is a list 
 | Schedule tab           | Works, simulator, demo events                 |
 | Live Activity          | Lock Screen + Dynamic Island OK on iOS 27 sim |
 | Pit tab                | Robot cheat sheet only                        |
-| Settings               | Auto-save, reset to defaults, event picker    |
+| Settings               | Auto-save, reset to defaults, picker, About   |
+| Deployment target      | Pinned to 16.2, six configs, builds clean     |
 | Stats / TechBotics tab | Commented out in `ContentView`                |
 | Server                 | Deployed on Cloud Run at nexus.jerryxf.net    |
 | `/batteries`           | Verified against Neon, returns []             |
@@ -58,6 +60,9 @@ is why development has continued.
 **There is no workaround.** A free Personal Team is not created for an Apple ID that already holds a membership, so
 device builds cannot be unblocked with this Apple ID. A second, membership-free Apple ID would get a Personal Team, but
 the bundle IDs are registered under `HWB4Y653YR` and would need temporary renaming. Not worth it for one answer.
+
+**Status, 18 Aug:** Developer Support has been contacted and their reply suggests this resolves soon. Nothing downstream
+is designed around that landing on a particular date.
 
 **Ticket:** submitted under Membership and Account → Program Purchase and Renewal. Lead with the contradiction between
 the two systems, not with a claim that the enrollment failed — the membership is demonstrably active and that framing
@@ -152,6 +157,31 @@ The server is live at `https://nexus.jerryxf.net`, on Cloud Run in project `tech
   revision, and smoke-tests `/events` through the public hostname. Auth is a service account key in `GCP_SA_KEY`; it
   does not expire and the repo is public, so rotate it after the season or move to Workload Identity Federation. The
   deploy step passes **image only** — passing `env_vars` would replace the whole map rather than merge into it
+
+### iOS, 18 Aug
+
+- **Deployment target pinned to 16.2** across all six configs. Reasoning under *Before submission*. Build is clean at
+  16.2, which also confirms nothing in the codebase was quietly depending on a 17+ API
+- **Decision: stay on iOS 16.** The question was whether dropping to 17 would buy back design freedom. It would not.
+  Every availability check in the app — all five — is `iOS 26.0`, for Liquid Glass; there is not one `iOS 17` guard
+  anywhere, so supporting 16 currently costs nothing and a 17 floor would remove no guards. iOS 16 sat near 3.8% share
+  in April 2026 and falls further after the September release, but the floor is trivially raised later and cannot be
+  lowered once shipped. Counterweight worth knowing: Xcode 27 only debugs on-device from iOS 17 up, so 16.2 is a floor
+  that cannot be tested on hardware. Revisit after the account resolves and real devices exist
+- **`ScheduleActivityAttributes.eventName` deleted.** See *Gotchas*. Switching events left a stale key baked into the
+  activity; the field was read nowhere and `ContentState.eventKey` already carried it mutably. Deletion, not
+  restart-on-change — restarting would churn the ActivityKit push token on every event change once push lands
+- **Picker failure copy** now branches on `NetworkMonitor.shared.isConnected` instead of always blaming the user's
+  connection. Both branches verified by temporarily forcing `loadFailed = true` in `load()`, which is the only way to
+  reach the server-down branch, since any real failure that is easy to cause is also an offline failure
+- **About footer** in Settings: version and build read from the bundle, credits, `Team 3990 · repo · Privacy policy`
+  on one line, then the non-affiliation disclaimer. Styled as a footer rather than a section — no card, no header,
+  centred, `.tertiary`, links underlined rather than tinted so the whole block stays one colour. Pinned to the bottom of
+  the viewport with `GeometryReader` + `.frame(minHeight:)` + `Spacer`, because a `Spacer` inside a `ScrollView` has
+  infinite height to push against and collapses otherwise. `containerRelativeFrame` would replace all of that at 17+
+- The GitHub link uses `chevron.left.forwardslash.chevron.right` as a stand-in. **SF Symbols has no GitHub mark**; the
+  official Invertocat needs to be added to `Assets.xcassets` as a template image with Preserve Vector Data. A missing
+  asset renders as nothing and only logs a warning, so check the simulator after swapping
 
 ### Settings, 17 Aug
 
@@ -304,36 +334,43 @@ element types. Live Activity starts and updates, and renders on both the Lock Sc
 
 ## Before submission
 
-Ordered by what blocks what.
+Ordered by what blocks what. Struck items are done.
 
-1. **Pin the deployment target.** All four target configs are still on
-   `$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)`. Under Xcode 27 beta this resolves to **iOS 17** — it does not track the
-   current SDK, and an earlier guess that it followed the beta to iOS 27 was wrong. iOS 17 still silently drops the
-   iPhone 8/X and 5th-gen iPad, which is the donated-hardware tier teams actually run, and the value moves between Xcode
-   versions. **Pin all six configs to 16.1, not 16.0.** The earlier note said 16.0 on the grounds that "Live Activities
-   need 16.1+, so nothing in use is lost" — but that assumed availability guards exist, and they don't.
-   `ScheduleActivityAttributes` and `ScheduleLiveActivityManager` use `Activity` and `ActivityAttributes` unguarded,
-   both of which are `@available(iOS 16.1, *)`. A 16.0 target fails to compile. Verify with:
+1. ~~**Pin the deployment target.**~~ Done 18 Aug — all six configs on **16.2**.
+   `$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)` resolved to iOS 17 under the beta Xcode 27. 16.0 was the first guess and
+   does not compile? 16.1 was the second and also does not compile? ActivityKit shipped in 16.1, but the API this app
+   calls — `Activity.request(attributes:content:pushType:)`, `activity.update(_:)` and
+   `activity.end(_:dismissalPolicy:)`, all taking `ActivityContent` — arrived in **16.2** and deprecated the 16.1
+   spellings. Nothing in `ScheduleLiveActivityManager` is availability-guarded, so anything below 16.2 is a build error
+   rather than a graceful degrade. Verify with:
    ```
    xcodebuild -showBuildSettings -project TechNexus.xcodeproj \
      -target TechNexus -configuration Release | grep IPHONEOS_DEPLOYMENT_TARGET
    ```
-2. **Remove Firebase from the Xcode project** (above)
+2. **Remove Firebase from the Xcode project** — **blocked on the transport decision.** `FirebaseMessaging` and
+   `firebase-ios-sdk` are still in `project.pbxproj` and `Package.resolved`. They come out if iOS goes direct to APNs
+   and stay if it goes through FCM, so this item cannot close until *Notifications* below is settled. Removal steps
+   under *Firebase, removed*
 3. **Android event field** — `composeApp/src/androidMain/.../views/settings/SettingsView.kt:49`
-   still has placeholder text `"e.g., 2026daly"`, now a dead event. Samy's file; the picker should be mirrored there
-   eventually
-4. **FIRST/FRC non-affiliation disclaimer** — nothing in the codebase mentions it. Guideline 5.2.1
-5. **Privacy policy** — required by App Store Connect, doesn't exist
+   still has placeholder text `"e.g., 2026daly"`, now a dead event. Samy's file. The whole Android settings surface is
+   scheduled to be translated from the iOS one in a later session, so this closes with that work
+4. ~~**FIRST/FRC non-affiliation disclaimer.**~~ Done 18 Aug — in the Settings About footer. **Check the wording against
+   *FIRST*'s current trademark guidelines before submitting**; they are specific about italicisation and the registered
+   mark, and they change
+5. **Privacy policy** — content brief written at `docs/PRIVACY_POLICY_SPEC.md`. The page itself does not exist yet; it
+   goes at `jerryxf.net/technexus/privacy` in Jerry's personal site repo, and the About footer already links there, so
+   **that link 404s until the page is up**. Three decisions are still open and are flagged in the spec: log retention,
+   Neon row retention, and the App Store age rating
 6. **App Store Connect metadata** — description, screenshots, privacy labels. Simulator screenshots are acceptable, and
-   App Store Connect works today
+   App Store Connect works today. Screenshots at several device sizes are the long pole
 7. **Confirm on a physical device** once the account resolves
-8. **Stable Xcode — resolved as "not a bug", now a scheduling item.** Xcode 26 is not supported on macOS 27 beta; the
-   reverse (Xcode 27 beta on macOS 26) is. Confirmed by Apple DTS on the developer forums. Nothing to debug. A beta
-   toolchain still cannot be used for App Store submission, so the plan is to finish everything under the beta and
-   submit once macOS 27 and Xcode 27 reach general availability — expected at the September event. That also dissolves
-   the SKIE swiftmodule problem, which only exists because two Xcodes are installed
-9. **Fix the picker's failure copy.** It says "check your connection" when the server is the thing that's down —
-   guaranteed confused bug reports from teams on venue wifi. Now testable, since the server can be made to fail
+8. **Toolchain — not a bug, a calendar item.** Xcode 26 is not supported on macOS 27 beta; the reverse (Xcode 27 beta on
+   macOS 26) is. Confirmed by Apple DTS on the developer forums. Nothing to debug. A beta toolchain still cannot be used
+   for App Store submission, so the plan is to finish and verify everything under the beta and submit once macOS 27 and
+   Xcode 27 reach general availability, expected at the September event. That also dissolves the SKIE swiftmodule
+   problem, which exists only because two Xcodes are installed — **do not install another beta after GA**
+9. ~~**Fix the picker's failure copy.**~~ Done 18 Aug — branches on `NetworkMonitor.shared.isConnected`. Both paths
+   verified in the simulator
 
 ---
 
@@ -349,8 +386,8 @@ service silently stops a few minutes after the last request — works perfectly 
 `--min-instances=1 --no-cpu-throttling`, which switches to instance-based billing, or scale to zero and drive the poll
 from Cloud Scheduler on its one-minute floor, which is fine for queue status. Decide before writing the poller.
 
-**Artifact Registry has no cleanup policy.** CI tags every image with the commit SHA, so roughly 250 MB accumulates per
-merge to `main`. "Keep most recent 5 versions" is one field.
+~~**Artifact Registry has no cleanup policy.**~~ Done. A cleanup policy is in place; CI was otherwise accumulating
+roughly 250 MB per merge to `main`.
 
 Also open: the `run.app` URL stays publicly reachable and bypasses Cloudflare. For a public read-only proxy that only
 means uncached load, which `--max-instances 4` caps. Disabling the default URL is not an option — the Worker targets
@@ -595,6 +632,7 @@ request-scoped CPU, where housekeeper threads freeze between requests. Leave it 
 README.md                                       overview, modules, config, routes
 Style_iOS.md                                    SwiftUI conventions, deployment target
 docs/PRIVACY_POLICY_SPEC.md                     content brief for jerryxf.net/technexus/privacy
+scripts/pin_deployment_target.py                guarded pbxproj edit, idempotent
 
 iosApp/TechNexus.xcodeproj/project.pbxproj      signing, deployment target, folder groups
 iosApp/iosApp/
