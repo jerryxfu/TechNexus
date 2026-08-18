@@ -13,6 +13,7 @@ struct EventPickerView: View {
     let onSelect: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var network = NetworkMonitor.shared
 
     @State private var events: [EventSummary] = []
     @State private var isLoading = true
@@ -131,13 +132,20 @@ struct EventPickerView: View {
         }
     }
 
+    /// The device knows whether it's online, so the copy shouldn't guess. Blaming
+    /// the user's connection when the server is down produces bug reports that
+    /// send teams hunting through venue wifi settings for an hour.
     private var failureRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Couldn't load events.")
                 .font(.subheadline)
-            Text("Check your connection, then try again.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            Text(
+                network.isConnected
+                    ? "The server isn't responding. This is on our end — try again in a moment."
+                    : "You're offline. Reconnect, then try again."
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
             Button("Try again") {
                 Task { await load() }
             }

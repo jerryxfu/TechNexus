@@ -37,6 +37,7 @@ struct SettingsView: View {
                     generalSection
                     liveActivitySection
                     resetSection
+                    aboutFooter
                 }
                 .padding(16)
             }
@@ -114,6 +115,46 @@ struct SettingsView: View {
         }
     }
 
+    /// Footer, leave for all the way at the bottom
+    private var aboutFooter: some View {
+        VStack(spacing: 4) {
+            Text("Version \(Self.versionString)")
+
+            Text("Made by Jerry, Raphaël, Samy")
+
+            HStack(spacing: 12) {
+                Text("Team 3990")
+
+                Link(destination: Self.repoURL) {
+                    Image("GitHubMark").resizable().frame(width: 16, height: 16)
+                    // Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    //     .imageScale(.medium)
+                    //     .padding(.horizontal, 4)
+                    //     .padding(.vertical, 2)
+                    //     .contentShape(Rectangle())
+                }
+                .foregroundStyle(.tertiary)
+                .accessibilityLabel("Source code on GitHub")
+
+                Link(destination: Self.privacyURL) {
+                    Text("Privacy policy").underline()
+                }
+                .foregroundStyle(.tertiary)
+            }
+
+            // Guideline 5.2.1. Keep this wording identical to the privacy page.
+            Text(Self.disclaimer)
+                .font(.caption)
+                .padding(.top, 8)
+        }
+        .font(.footnote)
+        .foregroundStyle(.tertiary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 20)
+        .padding(.horizontal, 16)
+    }
+
     /// The one control here that warrants a confirmation. Everything else applies silently because it's trivially reversible
     private var resetSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -159,6 +200,27 @@ struct SettingsView: View {
     }
 
     // MARK: - Actions
+
+    private static var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "\u{2014}"
+        let build = info?["CFBundleVersion"] as? String ?? "\u{2014}"
+        return "\(version) (\(build))"
+    }
+
+    private static let repoURL = URL(
+        string: "https://github.com/jerryxfu/TechNexus"
+    )!
+
+    private static let privacyURL = URL(
+        string: "https://jerryxf.net/technexus/privacy"
+    )!
+
+    private static let disclaimer =
+        "TechNexus is an independent project and is not affiliated with, "
+        + "endorsed by, or sponsored by FIRST, FIRST Robotics Competition, "
+        + "frc.nexus, or The Blue Alliance. Schedule and queue data comes "
+        + "from frc.nexus; match results come from The Blue Alliance."
 
     private func loadSettings() {
         let settings = SettingsManager.shared.settings

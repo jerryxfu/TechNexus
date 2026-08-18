@@ -23,7 +23,7 @@ It cannot be submitted yet. One blocker is outside the code; the rest is a list 
 | Schedule tab           | Works, simulator, demo events                 |
 | Live Activity          | Lock Screen + Dynamic Island OK on iOS 27 sim |
 | Pit tab                | Robot cheat sheet only                        |
-| Settings               | Works; event picker live against /events      |
+| Settings               | Auto-save, reset to defaults, event picker    |
 | Stats / TechBotics tab | Commented out in `ContentView`                |
 | Server                 | Deployed on Cloud Run at nexus.jerryxf.net    |
 | `/batteries`           | Verified against Neon, returns []             |
@@ -152,6 +152,32 @@ The server is live at `https://nexus.jerryxf.net`, on Cloud Run in project `tech
   revision, and smoke-tests `/events` through the public hostname. Auth is a service account key in `GCP_SA_KEY`; it
   does not expire and the repo is public, so rotate it after the season or move to Workload Identity Federation. The
   deploy step passes **image only** — passing `env_vars` would replace the whole map rather than merge into it
+
+### Settings, 17 Aug
+
+Save button removed; settings apply as they're made. The screen previously had two contracts on it — the Live Activity
+toggle applied instantly through `@AppStorage` while the two text fields waited for a Save tap — with nothing to tell
+them apart.
+
+- **Commit timing.** Event picker writes on selection (atomic pick from a finite list; a sheet dismissal is not a focus
+  change, so waiting for a blur would never fire). Team number writes on focus loss and on scene phase leaving
+  `.active`, never per keystroke — otherwise typing `3990` persists 3, 39, 399, 3990 and any future subscription built
+  on it fires four times. Both go through one idempotent `commitTeamNumber()`
+- **`.task(id:)` throughout**, not `onChange` — one API that works on iOS 16
+- **`resetToDefaults()`** in `Storage.kt`, with a `.confirmationDialog`. It removes the named keys rather than writing
+  defaults back, so the getters fall through on their own. Deliberately **not** `Settings.clear()`: on iOS the
+  `Settings` instance is backed by `NSUserDefaults.standardUserDefaults`, shared with `@AppStorage` and with keys Apple
+  owns. Android has a dedicated `app_settings` file and would be safe either way, but named keys behave identically on
+  both
+- **`DEFAULT_TEAM_NUMBER` is now `""`.** The app ships to other teams; a default that highlights 3990's robot is worse
+  than highlighting nothing. Empty is a valid stored value meaning "no team"
+- **`LiveActivityPreference.defaultValue`** added, because `true` was about to be written in three places
+- Deleted: `isSaved`, `resetTask`, `hasChanges`, `savedEventId`, `savedTeamNumber`, `save()`, `discard()`, both toolbar
+  buttons, both `.animation` modifiers, `ReplaceSymbolTransition`
+- **Notifications deliberately absent from the UI.** Toggles that control nothing are placeholder UI under Guideline 4.2
+
+Android still has the Save button and the dead `2026daly` placeholder. `resetToDefaults()` and the empty default are
+shared, so Samy gets both for free; the UI is his to mirror.
 
 ### iOS and toolchain, 17 Aug
 
@@ -284,7 +310,10 @@ Ordered by what blocks what.
    `$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)`. Under Xcode 27 beta this resolves to **iOS 17** — it does not track the
    current SDK, and an earlier guess that it followed the beta to iOS 27 was wrong. iOS 17 still silently drops the
    iPhone 8/X and 5th-gen iPad, which is the donated-hardware tier teams actually run, and the value moves between Xcode
-   versions. Pin all six configs to 16.0; Live Activities need 16.1+, so nothing in use is lost. Verify with:
+   versions. **Pin all six configs to 16.1, not 16.0.** The earlier note said 16.0 on the grounds that "Live Activities
+   need 16.1+, so nothing in use is lost" — but that assumed availability guards exist, and they don't.
+   `ScheduleActivityAttributes` and `ScheduleLiveActivityManager` use `Activity` and `ActivityAttributes` unguarded,
+   both of which are `@available(iOS 16.1, *)`. A 16.0 target fails to compile. Verify with:
    ```
    xcodebuild -showBuildSettings -project TechNexus.xcodeproj \
      -target TechNexus -configuration Release | grep IPHONEOS_DEPLOYMENT_TARGET
@@ -298,8 +327,11 @@ Ordered by what blocks what.
 6. **App Store Connect metadata** — description, screenshots, privacy labels. Simulator screenshots are acceptable, and
    App Store Connect works today
 7. **Confirm on a physical device** once the account resolves
-8. **Open stable Xcode.** Currently won't launch; symptom unknown. A beta cannot be used for App Store submission, so
-   this blocks shipping independently of the account problem
+8. **Stable Xcode — resolved as "not a bug", now a scheduling item.** Xcode 26 is not supported on macOS 27 beta; the
+   reverse (Xcode 27 beta on macOS 26) is. Confirmed by Apple DTS on the developer forums. Nothing to debug. A beta
+   toolchain still cannot be used for App Store submission, so the plan is to finish everything under the beta and
+   submit once macOS 27 and Xcode 27 reach general availability — expected at the September event. That also dissolves
+   the SKIE swiftmodule problem, which only exists because two Xcodes are installed
 9. **Fix the picker's failure copy.** It says "check your connection" when the server is the thing that's down —
    guaranteed confused bug reports from teams on venue wifi. Now testable, since the server can be made to fail
 
@@ -326,9 +358,29 @@ that hostname.
 
 ### Notifications
 
-Nothing built. **Transport: APNs directly on iOS, FCM on Android.** FCM's iOS path *is* APNs underneath, needs the same
-`.p8` key, and has historically lagged Apple's Live Activity payload format. Neither route avoids the Apple blocker —
-the auth key comes from the developer portal either way.
+Nothing built. **Transport: APNs directly on iOS, FCM on Android.** FCM's iOS path *is* APNs underneath and needs the
+same `.p8` key, so neither route avoids the Apple blocker — the auth key comes from the developer portal either way.
+
+**Correction, 17 Aug:** the old reason given here — that FCM lags Apple's Live Activity payload format — stopped being
+true in late 2024. FCM supports Live Activities via `apns.live_activity_token`, and `firebase-admin-java` has
+`ApnsConfig.Builder.setLiveActivityToken`. The decision still stands, on different grounds:
+
+- **`apns-priority` is not honoured through FCM.** firebase-ios-sdk issue #15648: Live Activity updates sent via FCM
+  arrive at priority 10 regardless of the header, which visually alerts and pops the activity out of the Dynamic Island
+  on *every* update. For a card that updates on a 15s poll this is disqualifying on its own. Re-check whether it's been
+  fixed before committing either way
+- **FCM's Live Activity path needs both tokens** — the FCM registration token *and* the ActivityKit token, in one
+  message. Two independent rotation schedules, both of which must be current. Direct APNs needs only the ActivityKit
+  token
+- **It makes Firebase a permanent iOS dependency**, reversing item 2 of *Before submission*, and
+  `GoogleService-Info.plist`
+  is gitignored — the same trap `google-services.json` set on Android
+- FCM in FCM's favour: the server already runs as `firebase-adminsdk-fbsvc@technexus-84e3f`, so `firebase-admin`
+  picks up Application Default Credentials with no configuration, and FCM routes sandbox vs production automatically
+
+There is no coherent middle. Direct APNs for Live Activities means `pushy` and the `.p8` are on the server anyway, at
+which point sending plain alerts through pushy too is free and Firebase buys nothing on iOS. Splitting alerts to FCM and
+activities to APNs pays both costs.
 
 On the JVM: `com.eatthepath:pushy` for APNs, since Ktor's CIO client engine won't do HTTP/2, and `firebase-admin` for
 Android.
@@ -383,6 +435,13 @@ toggle. Request permission on first toggle-on, not at launch, and re-read
 The four status strings currently live in `Constants.kt`, `MatchStatusHelper.swift`,
 `LiveActivityFormat.swift` and partly `ScheduleLiveActivityManager.swift` — a picker would be a fifth copy. Put the
 canonical enum in `shared` so all three platforms and the server agree on wire values.
+
+**Local notifications — decided against, 17 Aug.** The scheduler is the work, and the scheduler is exactly what push
+deletes: once the server diffs the `actual*` keys, the client schedules nothing. It also carries the known hole below.
+What survives a switch to push is small and transport-agnostic — `requestAuthorization`, the
+`UNUserNotificationCenterDelegate` for foreground presentation and tap routing, and re-reading `notificationSettings()`
+on scene phase so the toggles don't lie after someone revokes in iOS Settings. Roughly forty lines, identical under any
+transport. Build those when push is built, not before. Original note kept for reference:
 
 **Local notifications work today**, with no backend and no Apple account:
 `MatchTimes` has an estimate for each of the four statuses, so
@@ -490,6 +549,12 @@ about — it won't animate, and the tap target is only the text.
 dead code. `getEvents()` deliberately does not follow this pattern. Fixing `getEventData` is two lines, but Kotlin has
 no checked exceptions, so Android call sites will keep compiling and start crashing instead — do it with Samy present.
 
+**Live Activity attributes are immutable for the activity's lifetime.** `ScheduleActivityAttributes.eventName` was a
+copy of a value that changes, which meant switching events left the old key baked in while `content-state` updated from
+the new event. The field is referenced nowhere in the extension and `ContentState.eventKey` already carries the same
+value mutably, so the fix is to delete `eventName`, not to restart the activity on change. General rule: nothing that
+can change belongs in `ActivityAttributes`.
+
 **Status colours are duplicated** between `MatchStatusHelper` (app) and
 `LiveActivityFormat` (extension) because the extension doesn't link ComposeApp. Change both. Live Activity card opacity
 is `LiveActivityFormat.backgroundTint`.
@@ -529,6 +594,7 @@ request-scoped CPU, where housekeeper threads freeze between requests. Leave it 
 ```
 README.md                                       overview, modules, config, routes
 Style_iOS.md                                    SwiftUI conventions, deployment target
+docs/PRIVACY_POLICY_SPEC.md                     content brief for jerryxf.net/technexus/privacy
 
 iosApp/TechNexus.xcodeproj/project.pbxproj      signing, deployment target, folder groups
 iosApp/iosApp/
@@ -597,7 +663,10 @@ server/src/main/resources/logback.xml           NEW
 - **Raphaël** — App Manager on the Apple account. Handover complete; `nexus.raphdf201.net` is retired
 - **Samy** — Android/Compose, Statbotics. Can ship server changes by merging to `main` — no GCP access needed
 
-**The date to work backwards from is 28 August** — Summer Scorcher, and the first chance to run the newer surface
-(redesigned Live Activity, event picker,
-`nowQueuing`, `actual*` times) against a live event. The core loop already proved itself at Las Vegas; everything added
-since is untested against real data.
+**There is no deadline.** 28 August — Summer Scorcher — is the first chance to run the newer surface (redesigned Live
+Activity, event picker, `nowQueuing`, `actual*` times) against a live event, and everything added since Las Vegas is
+untested against real data, so it's worth using. It is not a ship date and nothing should be rushed to meet it.
+
+The real gate on submission is the September Apple event: macOS 27 and Xcode 27 reaching general availability is what
+makes a submittable toolchain exist. The plan is to have everything finished and verified before then, and submit once
+it lands.

@@ -61,9 +61,7 @@ final class ScheduleLiveActivityManager {
             )
         } else {
             do {
-                let attributes = ScheduleActivityAttributes(
-                    eventName: event.eventKey
-                )
+                let attributes = ScheduleActivityAttributes()
                 currentActivity = try Activity.request(
                     attributes: attributes,
                     content: .init(state: state, staleDate: Self.staleDate()),

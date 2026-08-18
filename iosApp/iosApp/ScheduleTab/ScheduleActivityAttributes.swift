@@ -17,8 +17,11 @@ struct ScheduleActivityAttributes: ActivityAttributes {
         var eventKey: String
     }
 
-    // Static attributes (don't change during the activity lifetime)
-    var eventName: String
+    // No static attributes. Attributes are fixed for the whole life of an
+    // activity, so anything that can change must not live here — an `eventName`
+    // field used to, and switching events left the old key baked in while
+    // `ContentState` updated from the new one. The event key is already carried
+    // mutably above.
 }
 
 struct HighlightedTeamInfo: Codable, Hashable {
