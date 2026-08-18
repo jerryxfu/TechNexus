@@ -32,17 +32,28 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    generalSection
-                    liveActivitySection
-                    resetSection
-                    aboutFooter
+            // GeometryReader is the only way to know the viewport height on iOS 16.
+            // `containerRelativeFrame` is 17+. Giving the stack a minHeight of the viewport
+            // lets the Spacer below absorb the slack, which pins the footer to the bottom.
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        generalSection
+                        liveActivitySection
+                        resetSection
+
+                        // minLength 0: when the content overflows this collapses
+                        // and the footer sits at its normal 40pt gap.
+                        Spacer(minLength: 0)
+
+                        aboutFooter
+                    }
+                    .padding(16)
+                    .frame(minHeight: proxy.size.height, alignment: .top)
                 }
-                .padding(16)
+                .scrollDismissesKeyboard(.interactively)
             }
             .background(Color(.systemGroupedBackground))
-            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -151,7 +162,6 @@ struct SettingsView: View {
         .foregroundStyle(.tertiary)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.top, 20)
         .padding(.horizontal, 16)
     }
 
