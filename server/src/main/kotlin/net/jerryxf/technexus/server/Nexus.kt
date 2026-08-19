@@ -31,7 +31,18 @@ private const val NEXUS_API = "https://frc.nexus/api/v1"
  *   caller's fault and shouldn't look like one. Logged at error level.
  * - anything else becomes 502.
  */
-suspend fun nexusBody(call: ApplicationCall, path: String): String? {
+suspend fun nexusBody(
+    call: ApplicationCall,
+    path: String,
+    /**
+     * What to answer when frc.nexus says 404.
+     *
+     * `/map` passes 204: a missing pit map is the normal case, and leaving it as 404 makes it indistinguishable
+     * from Ktor's own route-miss 404, so an undeployed server tells the client "this event has no map" instead of
+     * "this endpoint is gone."
+     */
+    notFoundStatus: HttpStatusCode = HttpStatusCode.NotFound
+): String? {
     val response = try {
         client.get("$NEXUS_API/$path") {
             headers.append("Nexus-Api-Key", Config.nexusApiKey)
@@ -48,7 +59,9 @@ suspend fun nexusBody(call: ApplicationCall, path: String): String? {
     when (response.status) {
         HttpStatusCode.NotFound -> {
             call.application.log.info("frc.nexus 404 for /{}: {}", path, body)
-            call.respond(HttpStatusCode.NotFound, body)
+            // 204 cannot carry a body, so the upstream message goes to the log only.
+            if (notFoundStatus == HttpStatusCode.NoContent) call.respond(HttpStatusCode.NoContent)
+            else call.respond(notFoundStatus, body)
         }
 
         HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden -> {
@@ -70,7 +83,11 @@ suspend fun nexusBody(call: ApplicationCall, path: String): String? {
 }
 
 /** Relay a Nexus response verbatim. */
-suspend fun proxyNexus(call: ApplicationCall, path: String) {
-    val body = nexusBody(call, path) ?: return
+suspend fun proxyNexus(
+    call: ApplicationCall,
+    path: String,
+    notFoundStatus: HttpStatusCode = HttpStatusCode.NotFound
+) {
+    val body = nexusBody(call, path, notFoundStatus) ?: return
     call.respondText(body, ContentType.Application.Json, HttpStatusCode.OK)
 }

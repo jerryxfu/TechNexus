@@ -49,19 +49,35 @@ struct ScheduleBodyView: View {
                     .padding(.horizontal, 14)
                 }
 
-                Divider().padding(.horizontal, 14)
-
-                // Keyed by label, not offset. Nexus labels are unique within an event, and the list reorders
-                // on every 15s poll as matches finish so an offset key hands card N's identity to a different match
-                // and SwiftUI morphs the two instead of replacing them. See the dot note in CLAUDE.md.
-                ForEach(upcomingMatches, id: \.label) {
-                    match in
-                    MatchCardView(
-                        match: match,
-                        highlightedTeams: highlightedTeams,
-                        currentOnFieldStart: currentOnFieldStart
-                    )
+                if event.matches.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("No matches published for \(event.eventKey) yet.")
+                            .font(.subheadline)
+                        Text("The schedule appears here once the event posts it.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                    }
                     .padding(.horizontal, 14)
+                } else {
+                    Divider().padding(.horizontal, 14)
+
+                    // Keyed by label, not offset. Nexus labels are unique within an event, and the list reorders
+                    // on every 15s poll as matches finish so an offset key hands card N's identity to a different match
+                    // and SwiftUI morphs the two instead of replacing them. See the dot note in CLAUDE.md.
+                    ForEach(upcomingMatches, id: \.label) { match in
+                        MatchCardView(
+                            match: match,
+                            highlightedTeams: highlightedTeams,
+                            currentOnFieldStart: currentOnFieldStart
+                        )
+                        .padding(.horizontal, 14)
+                    }
                 }
             }
             .padding(.bottom, 32)

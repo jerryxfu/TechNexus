@@ -56,6 +56,7 @@ fun Application.module() {
 
     batteries()
     events()
+    pits()
     matches()
 }
 

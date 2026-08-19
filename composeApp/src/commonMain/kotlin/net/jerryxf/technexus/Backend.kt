@@ -5,7 +5,7 @@ import io.ktor.client.request.*
 import io.ktor.http.*
 import net.jerryxf.technexus.shared.*
 
-private const val apiUrl = "https://nexus.jerryxf.net"
+internal const val apiUrl = "https://nexus.jerryxf.net"
 
 /**
  * Every current and upcoming event on Nexus, soonest first.
