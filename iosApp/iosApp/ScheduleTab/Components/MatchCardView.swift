@@ -218,7 +218,7 @@ struct MatchCardView: View {
             }
 
             TimingCarouselView(times: match.times)
-                .padding(8)
+                .padding(6)
                 .background(Color(.systemGray6))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
         }
@@ -234,7 +234,7 @@ struct MatchCardView: View {
             HStack(spacing: 4) {
                 Text(label)
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(color.opacity(0.7))
+                    .foregroundStyle(color.opacity(0.85))
                 // Index-keyed on purpose: team strings are not unique once teamList() maps missing entries to "N/A"
                 ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
                     TeamPill(
@@ -248,11 +248,11 @@ struct MatchCardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(5)
-        .background(color.opacity(0.03))
+        .background(color.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(color.opacity(0.12), lineWidth: 1)
+                .stroke(color.opacity(0.22), lineWidth: 1)
         )
     }
 }

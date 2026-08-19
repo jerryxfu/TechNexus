@@ -79,9 +79,13 @@ struct TimingCarouselView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: 24)
+            .frame(height: 22)
 
-            VStack(spacing: 3) {
+            // Spacing, not just the TabView, sets the carousel's height. Four
+            // entries at 4pt with 3pt between them is 25pt, so the dot column
+            // was the taller of the two and shrinking the TabView alone did
+            // nothing. 4x4 + 3x2 = 22, which now matches it.
+            VStack(spacing: 2) {
                 ForEach(0..<entries.count, id: \.self) { i in
                     Circle()
                         .fill(

@@ -21,6 +21,23 @@ struct ScheduleLiveActivity: Widget {
                 context.state.matchStatus,
                 isStale: context.isStale
             )
+            let label = LiveActivityFormat.matchLabelParts(
+                context.state.matchLabel
+            )
+
+            // The Dynamic Island shows two of these Three do fit horizontally, but the last chips lose the
+            // tail of its ETA "Queuing in 1...".
+            //
+            // Capped here rather than in the manager because Lock Screen displays 3
+            let islandTeams = Array(
+                context.state.highlightedTeamsSummary.prefix(2)
+            )
+            // Both sources of hidden teams: the ones this cap dropped, and the
+            // ones the manager's cap never sent in the first place.
+            let islandOverflow =
+                (context.state.highlightedTeamsSummary.count
+                    - islandTeams.count)
+                + (context.state.highlightedOverflowCount ?? 0)
 
             return DynamicIsland {
                 // Left and right of the dynamic island is the field status and time.
@@ -63,37 +80,55 @@ struct ScheduleLiveActivity: Widget {
                     VStack(spacing: 8) {
                         HStack(alignment: .center, spacing: 10) {
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(context.state.matchLabel)
-                                    .font(.headline)
+                                // Two rows rather than one string. "Qualification
+                                // 15" at .headline is wide enough that it was
+                                // scaling to 0.7 against the alliance rows and
+                                // the timer, and the type repeats for eighty
+                                // matches in a row while the number is the part
+                                // anyone reads. Splitting buys the width back
+                                // and puts the weight on the identifying half.
+                                Text(label.type)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.secondary)
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
+                                    .minimumScaleFactor(0.8)
 
-                                // Playoffs only. The alliance labels are nil
-                                // outside playoffs, so their presence is the
-                                // test — the extension can't reach
-                                // Match.isPlayoff, and shipping a second copy of
-                                // the playoff rule here is exactly how the
-                                // status colours drifted.
+                                // Guarded because a label with no second token
+                                // yields an empty number, and an empty Text
+                                // still claims a line's height.
+                                if !label.number.isEmpty {
+                                    Text(label.number)
+                                        .font(.headline)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                }
+
+                                // "RED"/"BLUE" in practice and quals, "A3"/"A?" once playoffs start.
+                                // Same source as the Lock Screen and the match cards, so the three switch together.
+                                //
+                                // The ?? only covers activities started before these fields existed;
+                                // matching the Lock Screen's fallback rather than dropping the row
+                                // keeps the region's height from changing.
                                 //
                                 // Sits under the label rather than inside the
                                 // alliance rows: the rows are the width-critical
                                 // element in the tightest region on the screen,
                                 // and there is free vertical space beside them.
-                                if let red = context.state.redAllianceLabel,
-                                    let blue = context.state.blueAllianceLabel
-                                {
-                                    HStack(spacing: 3) {
-                                        Text(red).foregroundStyle(.red)
-                                        Text("vs").foregroundStyle(.secondary)
-                                        Text(blue).foregroundStyle(.blue)
-                                    }
-                                    // Fixed size: Dynamic Island regions have
-                                    // hard pixel budgets and barely honour
-                                    // Dynamic Type.
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
+                                HStack(spacing: 3) {
+                                    Text(context.state.redAllianceLabel ?? "RED")
+                                        .foregroundStyle(.red)
+                                    Text("vs").foregroundStyle(.secondary)
+                                    Text(
+                                        context.state.blueAllianceLabel ?? "BLUE"
+                                    )
+                                    .foregroundStyle(.blue)
                                 }
+                                // Fixed size: Dynamic Island regions have hard
+                                // pixel budgets and barely honour Dynamic Type.
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -129,10 +164,11 @@ struct ScheduleLiveActivity: Widget {
                             .frame(maxWidth: .infinity, alignment: .trailing)
                         }
 
-                        if !context.state.highlightedTeamsSummary.isEmpty {
+                        if !islandTeams.isEmpty {
                             highlightedTeamsRow(
-                                context.state.highlightedTeamsSummary,
-                                overflow: context.state.highlightedOverflowCount,
+                                islandTeams,
+                                overflow: islandOverflow > 0
+                                    ? islandOverflow : nil,
                                 isStale: context.isStale
                             )
                         }
@@ -212,7 +248,7 @@ struct ScheduleLiveActivity: Widget {
                         .fill(tint)
                         .frame(width: 5, height: 5)
                     Text("\(info.team) · \(presentation.text)")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(presentation.color)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
@@ -227,7 +263,7 @@ struct ScheduleLiveActivity: Widget {
             // card from quietly implying those are all the teams being tracked.
             if let overflow, overflow > 0 {
                 Text("+\(overflow)")
-                    .font(.caption2)
+                    .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
@@ -248,7 +284,7 @@ private struct ScheduleLockScreenView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             header
 
             HStack(spacing: 6) {
@@ -268,8 +304,13 @@ private struct ScheduleLockScreenView: View {
             }
 
             if !state.highlightedTeamsSummary.isEmpty {
-                Divider()
-                highlightedTeams
+                // Nested so the divider gap is tighter than the outer rhythm.
+                // Flat in the parent VStack it took the spacing twice, once on
+                // each side, and the two sections drifted visibly apart.
+                VStack(alignment: .leading, spacing: 4) {
+                    Divider()
+                    highlightedTeams
+                }
             }
         }
         .padding(.horizontal, 14)
@@ -281,14 +322,15 @@ private struct ScheduleLockScreenView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(state.matchLabel)
                     .font(.headline)
+
                 HStack(spacing: 4) {
                     if isStale {
                         Image(systemName: LiveActivityFormat.staleIcon)
-                            .font(.caption2)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Text(state.matchStatus)
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundStyle(
                             LiveActivityFormat.statusColor(
                                 state.matchStatus,
@@ -314,7 +356,7 @@ private struct ScheduleLockScreenView: View {
                         status: state.matchStatus
                     )
                 )
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
@@ -323,11 +365,29 @@ private struct ScheduleLockScreenView: View {
     }
 
     private var highlightedTeams: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
+            // "+N more" is an absolute position overlay at the bottom center of the card.
+            //
+            // The .frame is load-bearing: without it the overlay centres on the text's own width and "+2 more"
+            // lands on top of "YOUR TEAMS" rather than in the middle of the card.
             Text("YOUR TEAMS")
                 .font(.caption2)
                 .fontWeight(.bold)
                 .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .center) {
+                    if let overflow = state.highlightedOverflowCount,
+                        overflow > 0
+                    {
+                        Text("+\(overflow) more")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            // Overlays are offered the parent's size as their proposal;
+                            // fixedSize keeps this at its ideal width so it can never be squeezed into a wrap.
+                            .fixedSize()
+                    }
+                }
 
             ForEach(state.highlightedTeamsSummary, id: \.team) { info in
                 let presentation =
@@ -342,29 +402,23 @@ private struct ScheduleLockScreenView: View {
                         )
                         .frame(width: 5, height: 5)
                     Text(info.team)
-                        .font(.caption2)
+                        .font(.caption)
                         .fontWeight(.semibold)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     Text("· \(info.matchLabel)")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     Spacer()
                     Text(presentation.text)
-                        .font(.caption2)
+                        .font(.caption)
                         .fontWeight(.medium)
                         .foregroundStyle(presentation.color)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
-            }
-
-            if let overflow = state.highlightedOverflowCount, overflow > 0 {
-                Text("+\(overflow) more")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
         }
     }

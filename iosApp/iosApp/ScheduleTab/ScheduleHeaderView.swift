@@ -66,6 +66,12 @@ struct ScheduleHeaderView: View {
                     .font(.footnote)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
+                    // New identity per match. Without it the line keeps one identity as `latest` advances,
+                    // so "Qualification 9" -> "Qualification 10" is a width change to an existing view
+                    // rather than a replacement. The blink dot, which sits at the end of the row with
+                    // a repeatForever animation permanently in flight, slides to its new x instead of
+                    // arriving there. That is the "dot moved left and right" issue.
+                    .id(latest.label)
                 } else {
                     Text("\(event.matches.count) matches")
                         .font(.footnote)

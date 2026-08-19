@@ -241,7 +241,10 @@ places for no reason.
 **3. Playoff alliance numbers.** `RED` / `BLUE` become `A3` / `A?` in playoffs only, on match cards and the Lock Screen.
 In the Dynamic Island they sit *under* the match label as `A3 vs A5` rather than in the alliance rows, which are the
 width-critical element in the tightest region on screen. The extension can't reach `Match.isPlayoff`, so the labels are
-pre-rendered in the app and travel in `ContentState`; their presence is what the Dynamic Island tests for.
+pre-rendered in the app and travel in `ContentState`. **They are always populated** — `allianceLabel` returns `RED` /
+`BLUE` outside playoffs rather than nil, so the row renders on every match type and all three surfaces switch together.
+Corrected 18 Aug: this section, `ScheduleActivityAttributes` and `ScheduleLiveActivity` all claimed nil-outside-playoffs
+and that the Dynamic Island used their presence as the playoff test. It never did; the `if let` always succeeded.
 
 **4. Pull to refresh.** The poll loop was inverted to sleep-then-refresh, seeded by one initial fetch and restarted by a
 `refreshTick` state bump. Pull-to-refresh awaits the real fetch — so the spinner lasts as long as the request — then
@@ -278,6 +281,26 @@ voting, lossless passthrough of unmodelled keys, the all-null-times decode, and 
 
 ### iOS, 18 Aug
 
+- **Dynamic Island match label split across two rows.** `Qualification` on the first, `15` on the second, with the type
+  in `.subheadline` secondary and the number keeping the old `.headline`. One string at `.headline` was wide enough to
+  scale to 0.7 against the alliance rows and the timer, and the type is identical for eighty consecutive matches while
+  the number is the half anyone reads. Split in `LiveActivityFormat.matchLabelParts`, in the extension — it needs
+  nothing but the string, unlike the alliance labels, and `ContentState` is about to become the APNs `content-state`
+  payload, where every field is a key the server must send and keep in sync. The Lock Screen is unchanged; it has the
+  width. Fixed alongside: `compactLabel` took the *last* token as the number, so `Qualification 24 Replay` rendered as
+  `QReplay` in the compact region. Now `Q24R`
+- **Live Activity and schedule density pass.** Lock Screen: status to `.footnote` and the clock line to `.caption`;
+  "Your teams" rows to `.caption`; header-to-alliance gap 8 -> 6, and the divider block nested at 5 so the two sections
+  stop taking the outer spacing twice. Dynamic Island: chips to `.caption`, and **capped at two teams**, not three.
+  Three fit horizontally but the last one truncates its ETA mid-word, and a cut-off time reads as broken where a `+1`
+  reads as deliberate. Capped at the render site, not in `maxHighlightedTeams` — the Lock Screen has room for three and
+  shouldn't lose a row to the narrower surface, and that constant also bounds the push payload, which is a different
+  concern. The island's overflow count adds the ones it dropped to the ones the manager never sent
+- **Schedule density and contrast.** Carousel down ~7pt: the TabView to 22 *and* the dot column's spacing to 2 — four
+  dots at 4pt with 3pt gaps is 25pt, so the dots were the taller element and shrinking the TabView alone did nothing.
+  Surrounding padding 8 -> 6. Card spacing 8 -> 9. Alliance box fill 0.03 -> 0.05 and stroke 0.12 -> 0.22, its label
+  0.7 -> 0.85, and `TeamPill`'s unhighlighted fill 0.08 -> 0.11 and stroke 0.20 -> 0.32. Highlighted values untouched on
+  purpose: raising both would have preserved the gap and gained nothing
 - **Deployment target pinned to 16.2** across all six configs. Reasoning under *Before submission*. Build is clean at
   16.2, which also confirms nothing in the codebase was quietly depending on a 17+ API
 - **Decision: stay on iOS 16.** The question was whether dropping to 17 would buy back design freedom. It would not.
@@ -633,6 +656,31 @@ and invites a reporting-and-blocking requirement on a first submission.
 Note Nexus **already has** an announcements system with Slack and Discord delivery, exposed through the API. Event-wide
 announcements are close to free once the schema is known and need no authoring UI at all — the volunteers are the
 authors. That's separate from team-internal broadcasts.
+
+---
+
+## Open — the jumping dot
+
+Seen twice, reproduced never. Once the status dot inside a match card's `LiveStatusBadge` moved **up and down**; once
+the header's dot moved **left and right**. Both dots run a `repeatForever(autoreverses: true)` opacity animation that is
+by definition always in flight, and both sit at the trailing end of a row whose width depends on text beside them.
+
+The hypothesis is not that the animation is wrong. It is that **an existing view was handed new content instead of being
+replaced**, so a layout delta became something to animate rather than something to swap. Two places did that:
+
+- `ScheduleBodyView` keyed both match lists with `ForEach(id: \.offset)`. The list reorders on every 15s poll as matches
+  finish, so card N's identity moves to a different match. Now keyed on `match.label`, which Nexus guarantees unique
+  within an event — including `Qualification 24` vs `Qualification 24 Replay`. **The team `ForEach`s keep `\.offset`
+  deliberately** and must not be changed: `teamList()` maps missing entries to `"N/A"`, so those strings are not unique
+- `ScheduleHeaderView`'s status line kept one identity as `latest` advanced, so `Qualification 9` -> `Qualification 10`
+  widened an existing row and slid the dot along it. Now `.id(latest.label)`
+
+Both changes are correct independently of the bug, which is the only reason they were made without a reproduction.
+**Neither is confirmed to fix it.** If it recurs, the next thing to rule out is the badge's own insertion: it is behind
+`if !isFarFromQueuing`, which is computed from `Date()` at render time and can therefore flip on a poll tick.
+
+Fastest way to force the conditions: point at a demo event, highlight enough teams that the list reorders, and watch a
+card at the boundary as a match completes.
 
 ---
 

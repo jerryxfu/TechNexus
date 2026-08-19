@@ -30,7 +30,7 @@ struct ScheduleBodyView: View {
                 )
             }
 
-            LazyVStack(spacing: 8) {
+            LazyVStack(spacing: 9) {
                 if error != nil {
                     staleBanner
                         .padding(.horizontal, 14)
@@ -38,7 +38,7 @@ struct ScheduleBodyView: View {
 
                 HighlightTeamsBar(highlightedTeams: $highlightedTeams)
                     .padding(.horizontal, 14)
-                    .padding(.bottom, 4)
+                // .padding(.bottom, 4)
 
                 // Past matches dropdown with the last completed always visible
                 if !allDoneMatches.isEmpty {
@@ -49,8 +49,14 @@ struct ScheduleBodyView: View {
                     .padding(.horizontal, 14)
                 }
 
-                ForEach(Array(upcomingMatches.enumerated()), id: \.offset) {
-                    _,
+                Divider().padding(.horizontal, 14)
+
+                // Keyed by label, not offset. Nexus labels are unique within
+                // an event, and the list reorders on every 15s poll as matches
+                // finish so an offset key hands card N's identity to a
+                // different match and SwiftUI morphs the two instead of
+                // replacing them.
+                ForEach(upcomingMatches, id: \.label) {
                     match in
                     MatchCardView(
                         match: match,
@@ -105,7 +111,7 @@ struct ScheduleBodyView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.vertical, 7)
             }
             .buttonStyle(.plain)
             .disabled(olderMatches.isEmpty)
@@ -114,9 +120,9 @@ struct ScheduleBodyView: View {
             if showPastMatches && !olderMatches.isEmpty {
                 Divider()
                     .padding(.horizontal, 8)
-                VStack(spacing: 8) {
-                    ForEach(Array(olderMatches.enumerated()), id: \.offset) {
-                        _,
+                VStack(spacing: 7) {
+                    // Same reasoning as the upcoming list above.
+                    ForEach(olderMatches, id: \.label) {
                         match in
                         MatchCardView(
                             match: match,
@@ -125,8 +131,8 @@ struct ScheduleBodyView: View {
                         )
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
+                .padding(.horizontal, 6)
+                .padding(.top, 4)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
@@ -139,7 +145,7 @@ struct ScheduleBodyView: View {
                     highlightedTeams: highlightedTeams,
                     currentOnFieldStart: currentOnFieldStart
                 )
-                .padding(8)
+                .padding(6)
             }
         }
         .background(Color(.systemBackground))

@@ -11,7 +11,7 @@ struct HighlightTeamsBar: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text("Highlighted Teams")
                     .font(.system(size: 10, weight: .semibold))

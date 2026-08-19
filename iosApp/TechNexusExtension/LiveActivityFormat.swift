@@ -137,13 +137,34 @@ enum LiveActivityFormat {
 
     // MARK: - Labels
 
-    /// "Qualification 15" -> "Q15", "Practice 4" -> "P4"
-    static func compactLabel(_ label: String) -> String {
+    /// Splits a Nexus label into the match type and everything identifying the
+    /// match within it: `"Qualification 15"` -> `("Qualification", "15")`.
+    ///
+    /// The label set is documented: `Practice N`, `Qualification N`, `Qualification N Replay`, `Playoff N`, `Final N`
+    ///
+    /// Parsed in the extension rather than sent over in `ContentState`, unlike
+    /// the alliance labels. Those need `Match.isPlayoff` and the extension
+    /// can't link ComposeApp; this needs nothing but the string.
+    static func matchLabelParts(_ label: String) -> (
+        type: String, number: String
+    ) {
         let parts = label.split(separator: " ")
-        if parts.count >= 2, let first = parts.first?.first {
-            return "\(first)\(parts.last ?? "")"
+        guard parts.count >= 2 else { return (label, "") }
+        return (String(parts[0]), parts.dropFirst().joined(separator: " "))
+    }
+
+    /// "Qualification 15" -> "Q15", "Practice 4" -> "P4", "Qualification 24 Replay" -> "Q24R"
+    static func compactLabel(_ label: String) -> String {
+        let (type, number) = matchLabelParts(label)
+        let tokens = number.split(separator: " ")
+        guard let initial = type.first, let digits = tokens.first else {
+            return String(label.prefix(3))
         }
-        return String(label.prefix(3))
+        let suffix = tokens.dropFirst()
+            .compactMap(\.first)
+            .map { String($0).uppercased() }
+            .joined()
+        return "\(initial)\(digits)\(suffix)"
     }
 
     static func statusWithEta(_ info: HighlightedTeamInfo) -> String {
