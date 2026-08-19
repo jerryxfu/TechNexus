@@ -1,11 +1,37 @@
-# TechNexus — handoff
+# TechNexus — technical notes
 
 Last updated 18 Aug 2026. The server is deployed and live at `nexus.jerryxf.net`; the iOS app builds and runs against a
 pinned iOS 16.2 deployment target. Schedules refresh correctly, pull-to-refresh works, the app survives losing its
 connection, and playoff alliance numbers come through from Nexus.
 
-The single handoff document for this project. `README.md` covers building and running; `Style_iOS.md` covers SwiftUI
-conventions. This covers state, blockers, decisions and the things that were expensive to learn.
+**This is the working document for Claude, and for any developer who wants the reasoning rather than the summary.**
+`README.md` is public-facing — what the project is, how to run the server, how to deploy. `Style_iOS.md` covers SwiftUI
+conventions. This file covers state, blockers, decisions, and the things that were expensive to learn. It doubles as the
+handoff document when there is one.
+
+Written to be read start-to-finish before touching anything. Most of it exists because something looked like a different
+problem than it was.
+
+---
+
+## Working in this repo
+
+- **Read before recommending.** This file and the source in question, not one or the other. Several sections below
+  describe behaviour that contradicts what the code appears to do
+- **Discuss the design before writing code.** Tradeoffs first, then the change. This is a standing preference, not a
+  per-task one
+- **Don't build throwaway work.** If a later system deletes a component, skip the component. Local notification
+  scheduling was skipped on exactly these grounds — see *Notifications*
+- **Verify against the tree, not against memory of the tree.** Jerry pushes after each meaningful change, so pull first.
+  Claims in this file that were later disproved are marked as such rather than deleted, because the wrong belief is
+  usually the interesting part
+- **Two files always change together:** `MatchStatusHelper` (app) and `LiveActivityFormat` (extension) duplicate the
+  status colours, because the extension doesn't link ComposeApp
+- **`git diff project.pbxproj` after any file operation in Xcode.** A one-line change is normal; twenty deleted lines in
+  the `PBXFileSystemSynchronized*` sections never is
+- **Guard every scripted `pbxproj` edit.** `assert old in s` before each replacement, so a missed pattern fails loudly
+  instead of writing a corrupt project file
+- **Nothing here is deadline-driven.** Competitions on the calendar are test opportunities, not ship dates
 
 ---
 
@@ -23,7 +49,7 @@ It cannot be submitted yet. One blocker is outside the code; the rest is a list 
 | Area                   | State                                         |
 |------------------------|-----------------------------------------------|
 | Schedule tab           | Pull-to-refresh, offline cache, 15s poll      |
-| Live Activity          | Lock Screen + Dynamic Island, top-3 teams cap |
+| Live Activity          | Lock Screen + Island, 3 / 2 team cap          |
 | Pit tab                | Robot cheat sheet only                        |
 | Settings               | Auto-save, reset to defaults, picker, About   |
 | Deployment target      | Pinned to 16.2, six configs, builds clean     |
@@ -270,10 +296,9 @@ The header also got **shorter** while gaining that chip: ~70pt to ~52pt, by movi
 - **`getTBAKey` returns null for playoffs.** It was building `<event>_em7`, a key TBA has never used, so the request
   404'd and looked like a missing match. TBA keys eliminations by bracket position; there is no arithmetic from Nexus's
   sequential numbering. Now honest, with `Matches.kt` returning a 400 that says so
-- **`schedule/MatchUtils.kt` should be deleted.** Its only contents were `getPlayoffAlliance` and two helpers — 143
-  lines reconstructing alliance numbers from a hardcoded 2023 double-elimination bracket, with a self-admitted
-  placeholder bug, called from nowhere. Nexus answers this directly now. *(Verify this deletion actually landed — it was
-  not in the 18 Aug working diff.)*
+- **`schedule/MatchUtils.kt` deleted.** Its only contents were `getPlayoffAlliance` and two helpers — 143 lines
+  reconstructing alliance numbers from a hardcoded 2023 double-elimination bracket, with a self-admitted placeholder
+  bug, called from nowhere. Nexus answers this directly now. Confirmed gone from the tree
 
 Verified by compiling the shared model and all four server files against Kotlin 2.4.10, Ktor 3.5.1 and
 kotlinx-serialization 1.11.0, and running 44 behaviour checks: alliance seeding and null handling, backup-robot majority
@@ -404,16 +429,18 @@ Unrelated, for Samy: the Android build warns that AGP 9.0.1 is untested against 
   `ViewModifier` so there's one `Image` identity instead of one per branch
 - `.clipShape(.rect(...))` → `RoundedRectangle(...)`, which was the only thing blocking iOS 16
 
-### Firebase, removed
+### Firebase — removed on Android, retained on iOS
 
 Five declarations, zero lines of code anywhere in the repo: the `googleServices`
 plugin in `androidApp` and the root build file, `firebase-bom` and
 `firebase-messaging` in `composeApp`'s `androidMain`, and both version-catalog entries. `google-services.json` is
 gitignored, so the plugin made the Android build impossible for anyone without the file.
 
-**Still present in the iOS project** — `FirebaseMessaging` and `firebase-ios-sdk`
-in `project.pbxproj` and `Package.resolved`. Remove through Xcode, not by editing the file: Project → Package
-Dependencies → `firebase-ios-sdk` → `−`, then app target → General → Frameworks → remove `FirebaseCore`. Then `git diff
+**Still present in the iOS project, and staying there for now** — `FirebaseMessaging` and `firebase-ios-sdk` in
+`project.pbxproj` and `Package.resolved`, imported by nothing. This is a decision, not an oversight: the transport
+question it was once blocked on is settled, and pulling it out is cosmetic next to what else is open. When it is worth
+doing, remove through Xcode, not by editing the file: Project → Package Dependencies → `firebase-ios-sdk` → `−`, then
+app target → General → Frameworks → remove `FirebaseCore`. Then `git diff
 project.pbxproj` and confirm nothing moved in `PBXFileSystemSynchronized*`.
 `iosApp/iosApp/GoogleService-Info.plist` can leave `.gitignore` at the same time.
 
@@ -497,7 +524,7 @@ Ordered by what blocks what. Struck items are done.
 
 1. ~~**Pin the deployment target.**~~ Done 18 Aug — all six configs on **16.2**.
    `$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)` resolved to iOS 17 under the beta Xcode 27. 16.0 was the first guess and
-   does not compile? 16.1 was the second and also does not compile? ActivityKit shipped in 16.1, but the API this app
+   does not compile. 16.1 was the second and does not compile either. ActivityKit shipped in 16.1, but the API this app
    calls — `Activity.request(attributes:content:pushType:)`, `activity.update(_:)` and
    `activity.end(_:dismissalPolicy:)`, all taking `ActivityContent` — arrived in **16.2** and deprecated the 16.1
    spellings. Nothing in `ScheduleLiveActivityManager` is availability-guarded, so anything below 16.2 is a build error
@@ -506,22 +533,24 @@ Ordered by what blocks what. Struck items are done.
    xcodebuild -showBuildSettings -project TechNexus.xcodeproj \
      -target TechNexus -configuration Release | grep IPHONEOS_DEPLOYMENT_TARGET
    ```
-2. **Remove Firebase from the Xcode project** — **blocked on the transport decision.** `FirebaseMessaging` and
-   `firebase-ios-sdk` are still in `project.pbxproj` and `Package.resolved`. They come out if iOS goes direct to APNs
-   and stay if it goes through FCM, so this item cannot close until *Notifications* below is settled. Removal steps
-   under *Firebase, removed*. **It is not inert while it waits:** clearing DerivedData forces SPM to re-resolve
-   `firebase-ios-sdk`, and on 18 Aug that failed and needed Xcode's build cache cleared by hand. A dependency nothing
-   imports is still a dependency that can break a clean build
+2. ~~**Remove Firebase from the Xcode project.**~~ **Deliberately deferred — it stays for now.** `FirebaseMessaging`
+   and `firebase-ios-sdk` remain in `project.pbxproj` and `Package.resolved`, and nothing imports either. Removal was
+   previously listed as blocked on the transport decision; that decision is made (direct APNs on iOS), and removal is
+   still not being done, because it is cosmetic against everything else outstanding. Removal steps are under *Firebase,
+   removed* whenever it becomes worth doing. **It is not free while it sits:** clearing DerivedData forces SPM to
+   re-resolve `firebase-ios-sdk`, and on 18 Aug that failed and needed Xcode's build cache cleared by hand. A dependency
+   nothing imports is still a dependency that can break a clean build, so if a clean build fails oddly, suspect this
+   first
 3. **Android event field** — `composeApp/src/androidMain/.../views/settings/SettingsView.kt:49`
    still has placeholder text `"e.g., 2026daly"`, now a dead event. Samy's file. The whole Android settings surface is
    scheduled to be translated from the iOS one in a later session, so this closes with that work
 4. ~~**FIRST/FRC non-affiliation disclaimer.**~~ Done 18 Aug — in the Settings About footer. **Check the wording against
    *FIRST*'s current trademark guidelines before submitting**; they are specific about italicisation and the registered
    mark, and they change
-5. **Privacy policy** — content brief written at `docs/PRIVACY_POLICY_SPEC.md`. The page itself does not exist yet; it
-   goes at `jerryxf.net/technexus/privacy` in Jerry's personal site repo, and the About footer already links there, so
-   **that link 404s until the page is up**. Three decisions are still open and are flagged in the spec: log retention,
-   Neon row retention, and the App Store age rating
+5. **Privacy policy** — a content brief exists but is **not in this repo**; Jerry keeps it with the personal site work.
+   The page goes at `jerryxf.net/technexus/privacy`, and the About footer already links there, so **that link 404s until
+   the page is up**. Three decisions were still open in the brief: log retention, Neon row retention, and the App Store
+   age rating
 6. **App Store Connect metadata** — description, screenshots, privacy labels. Simulator screenshots are acceptable, and
    App Store Connect works today. Screenshots at several device sizes are the long pole
 7. **Confirm on a physical device** once the account resolves
@@ -750,14 +779,17 @@ Confirm with `strings <framework>/Modules/ComposeApp.swiftmodule/arm64-apple-ios
 opposite direction, at the worst possible moment. Both Xcodes also share one DerivedData folder, since the name hashes
 the project path, and `Index.noindex` inside it produces the duplicate "Also imported here" lines.
 
-This is now `scripts/relink_framework.sh`, which also refuses to run while Xcode is open (it recreates DerivedData
-mid-delete) and ends by comparing the framework's baked-in Swift version against the active `swiftc`. **A correct
-rebuild can be fast** — around 16 seconds — because `~/.konan` is untouched, so only your own code recompiles. Judge it
-by the SKIE warnings appearing in the output, not by the clock; a restored cache entry prints nothing.
+Two things about running that recipe. Quit Xcode first — it recreates DerivedData mid-delete otherwise. And **a correct
+rebuild is fast**, around 16 seconds, because `~/.konan` is untouched and only your own code recompiles, so judge it by
+the SKIE warnings appearing in the output rather than by the clock: a restored cache entry prints nothing.
+
+**This whole class of problem is temporary.** It exists only because two Xcodes are installed. It disappears when macOS
+27 and Xcode 27 reach general availability and the beta comes off the machine — see item 8 of *Before submission*. Do
+not install another beta after that.
 
 **Xcode 27 beta rewrites `project.pbxproj` cosmetically.** It renames `PBXFileSystemSynchronizedBuildFileExceptionSet`
 comments to descriptive form and drops empty `explicitFileTypes = {}` / `explicitFolders = ()` entries. This is
-*benign* — not the folder-group corruption the guarded edit script exists to catch. What matters is that
+*benign* — not the folder-group corruption that guarded edits exist to catch. What matters is that
 `membershipExceptions` still lists `ScheduleTab/ScheduleActivityAttributes.swift` for the extension target; if that
 disappears, the extension loses the shared `ContentState` and fails to build.
 
@@ -853,11 +885,9 @@ request-scoped CPU, where housekeeper threads freeze between requests. Leave it 
 ## File map
 
 ```
-README.md                                       overview, modules, config, routes
+README.md                                       public overview, server config, routes, deploy
+CLAUDE.md                                       this file
 Style_iOS.md                                    SwiftUI conventions, deployment target
-docs/PRIVACY_POLICY_SPEC.md                     content brief for jerryxf.net/technexus/privacy
-scripts/pin_deployment_target.py                guarded pbxproj edit, idempotent
-scripts/relink_framework.sh                     NEW — SKIE framework rebuild after xcode-select
 
 iosApp/TechNexus.xcodeproj/project.pbxproj      signing, deployment target, folder groups
 iosApp/iosApp/
@@ -879,7 +909,7 @@ iosApp/iosApp/
     HighlightedTeamsStore.swift                 NEW — persists highlighted teams
     MatchStatusHelper.swift                     latestMatch, status, alliance labels
     ScheduleActivityAttributes.swift            shared with the extension
-    ScheduleLiveActivityManager.swift           activity lifecycle, top-3 cap
+    ScheduleLiveActivityManager.swift           activity lifecycle, 3-team payload cap
     Components/MatchCardView.swift              match card
     Components/TeamPill.swift                   team chip
     Components/TimingCarouselView.swift         estimated times
@@ -892,8 +922,8 @@ iosApp/iosApp/
     EventPickerView.swift                       NEW — picker sheet
 iosApp/TechNexusExtension/
   TechNexusBundle.swift                         widget bundle
-  ScheduleLiveActivity.swift                    Lock Screen + Dynamic Island
-  LiveActivityFormat.swift                      formatting, colours, tint
+  ScheduleLiveActivity.swift                    Lock Screen + Island, 2-team island cap
+  LiveActivityFormat.swift                      formatting, colours, tint, label splitting
 
 shared/src/commonMain/kotlin/.../shared/
   DataClasses.kt                                Event, Match, MatchTimes,

@@ -51,11 +51,9 @@ struct ScheduleBodyView: View {
 
                 Divider().padding(.horizontal, 14)
 
-                // Keyed by label, not offset. Nexus labels are unique within
-                // an event, and the list reorders on every 15s poll as matches
-                // finish so an offset key hands card N's identity to a
-                // different match and SwiftUI morphs the two instead of
-                // replacing them.
+                // Keyed by label, not offset. Nexus labels are unique within an event, and the list reorders
+                // on every 15s poll as matches finish so an offset key hands card N's identity to a different match
+                // and SwiftUI morphs the two instead of replacing them. See the dot note in CLAUDE.md.
                 ForEach(upcomingMatches, id: \.label) {
                     match in
                     MatchCardView(
@@ -136,7 +134,7 @@ struct ScheduleBodyView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Last completed match — always visible
+            // Last completed match always visible
             if let lastCompleted {
                 Divider()
                     .padding(.horizontal, 8)

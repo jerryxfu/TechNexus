@@ -5,6 +5,8 @@ from [Nexus](https://frc.nexus).
 
 Kotlin Multiplatform with a native SwiftUI layer on iOS and Compose on Android.
 
+*TechNexus is an independent project and is not affiliated with, endorsed by, or sponsored by *FIRST*.*
+
 ## Modules
 
 Five build units in one repo. They share code but ship independently — nothing coordinates their release.
@@ -17,6 +19,8 @@ Five build units in one repo. They share code but ship independently — nothing
 | `iosApp`     | `.ipa`                  | SwiftUI app and the Live Activity extension. Built by Xcode, not Gradle.                                                                       |
 | `server`     | fat jar                 | Ktor service behind `nexus.jerryxf.net`. Depends on `shared`, not on `composeApp`.                                                             |
 
+Only four of those are Gradle modules; `iosApp` is opened directly in Xcode.
+
 ## Data sources
 
 | Source            | Used for                                                  | Notes                                                                                                                                                                       |
@@ -28,25 +32,29 @@ The clients never call either directly; both go through the server, which holds 
 
 ## Notifications
 
-Not built yet. When they are, the transport is **APNs directly on iOS, FCM on Android** — not FCM for both.
+Not built yet. When they are, the transport is **APNs directly on iOS, FCM on Android**.
 
-Firebase was previously linked on both platforms with no code behind it, which cost an App Store privacy disclosure for
-nothing and made `google-services.json`
-a build requirement for a file nobody had. It has been removed. Re-add it only for Android, and only when there is
-something to wire it to.
+Routing iOS through FCM would buy nothing and cost something. FCM's iOS transport *is* APNs underneath, so it needs the
+same `.p8` auth key either way and avoids none of the Apple Developer account setup. It does support Live Activities
+these days, via `apns.live_activity_token` — but **`apns-priority` is not honoured through it**
+([firebase-ios-sdk#15648](https://github.com/firebase/firebase-ios-sdk/issues/15648)): updates arrive at priority 10
+regardless of the header, which alerts the user and pops the activity out of the Dynamic Island on *every* update. For a
+card that updates on a 15-second cadence that is disqualifying on its own. It also needs two tokens per message, the FCM
+registration token and the ActivityKit token, on independent rotation schedules, where direct APNs needs only the
+latter.
 
-Routing iOS through FCM buys nothing: FCM's iOS transport *is* APNs, it needs the same `.p8` auth key, and it has
-historically lagged Apple's Live Activity payload format. The server holds the keys for both.
+Once `pushy` and the `.p8` are on the server for Live Activities, sending plain alerts through the same path is free, so
+Firebase earns nothing on iOS. On the JVM that means `com.eatthepath:pushy` for APNs — Ktor's CIO client engine won't do
+HTTP/2 — and `firebase-admin` for Android.
 
-## Shifts
-
-Auto 20s Transition shift 10s Alliance shift, lowest auto score enabled, 25s Alliance shift 25s Alliance shift 25s
-Alliance shift 25s Endgame 30s Total 160s / 2min40s
+Firebase was previously linked on both platforms with no code behind it, which made `google-services.json` a build
+requirement for a file nobody had. It is gone from Android and from the Gradle build. It is still declared in the Xcode
+project and imported by nothing; see `CLAUDE.md`.
 
 ## Server config
 
-All configuration comes from the environment. Every variable is required, and a missing one fails at startup naming all
-of them at once.
+All configuration comes from the environment. Every variable below is required, and a missing one fails at startup
+naming all of them at once.
 
 | Variable        | Purpose                                                     |
 |-----------------|-------------------------------------------------------------|
@@ -56,8 +64,12 @@ of them at once.
 | `DB_USER`       | Postgres user                                               |
 | `DB_PASSWORD`   | Postgres password                                           |
 
-`TECHNEXUS_CACHE_DIR` is optional and moves the outbound HTTP cache off the working directory, which a container often
-mounts read-only. `PORT` is optional too and defaults to 6867; Cloud Run injects it and health-checks against it.
+Two optional ones. `TECHNEXUS_CACHE_DIR` moves the server's *outbound* HTTP cache — its own calls to Nexus and TBA — off
+the working directory, which a container often mounts read-only. `PORT` defaults to 6867; Cloud Run injects it and
+health-checks against it.
+
+`DB_URL` takes no scheme and no credentials; the server prepends `jdbc:postgresql://`. Against a pooled endpoint such as
+Neon's, append `?prepareThreshold=0`.
 
 ## Running locally
 
@@ -82,8 +94,17 @@ curl http://localhost:6867/event/demo1815
 
 Tables are created on startup, so a fresh database needs no setup.
 
-Demo events authenticate like any other event — a real `NEXUS_API_KEY` is required even for `demo1815`. Demo events are
+The Gradle daemon forks `:server:run` with the *daemon's* environment, not your shell's — if you export after the daemon
+has started, run `./gradlew --stop` first.
+
+Demo events authenticate like any other event: a real `NEXUS_API_KEY` is required even for `demo1815`. Demo events are
 created on frc.nexus and are always named `demo` followed by a number.
+
+### Clients
+
+- **Android** — `./gradlew :androidApp:installDebug`, or open the repo in IntelliJ IDEA / Android Studio.
+- **iOS** — open `iosApp/TechNexus.xcodeproj` in Xcode and run. Gradle builds the shared framework as part of the Xcode
+  build; you do not invoke it yourself. Simulator builds need no Apple Developer account.
 
 ## Server routes
 
@@ -93,6 +114,10 @@ created on frc.nexus and are always named `demo` followed by a number.
 | `GET /event/{event}`                 | frc.nexus, live event and match status     | 15 s  |
 | `GET /event/{event}/match/{matchId}` | The Blue Alliance, reduced to a score      | 1 h   |
 | `/batteries/*`                       | Postgres                                   | none  |
+| `/cycles/*`                          | Postgres                                   | none  |
+
+`/event/{event}` injects playoff alliance seeds into each match, joined from Nexus's separate alliances endpoint.
+Clients never see the raw alliance array.
 
 ## Deployment
 

@@ -80,13 +80,10 @@ struct ScheduleLiveActivity: Widget {
                     VStack(spacing: 8) {
                         HStack(alignment: .center, spacing: 10) {
                             VStack(alignment: .leading, spacing: 1) {
-                                // Two rows rather than one string. "Qualification
-                                // 15" at .headline is wide enough that it was
-                                // scaling to 0.7 against the alliance rows and
-                                // the timer, and the type repeats for eighty
-                                // matches in a row while the number is the part
-                                // anyone reads. Splitting buys the width back
-                                // and puts the weight on the identifying half.
+                                // Two rows rather than one string. "Qualification 15" at .headline is wide enough
+                                // that it was scaling to 0.7 against the alliance rows and the timer,
+                                // and the type repeats for eighty matches in a row while the number is the part
+                                // anyone reads. Splitting buys the width back and puts the weight on the identifying half.
                                 Text(label.type)
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
@@ -94,9 +91,8 @@ struct ScheduleLiveActivity: Widget {
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
 
-                                // Guarded because a label with no second token
-                                // yields an empty number, and an empty Text
-                                // still claims a line's height.
+                                // Guarded because a label with no second token yields an empty number,
+                                // and an empty Text still claims a line's height.
                                 if !label.number.isEmpty {
                                     Text(label.number)
                                         .font(.headline)
@@ -111,9 +107,8 @@ struct ScheduleLiveActivity: Widget {
                                 // matching the Lock Screen's fallback rather than dropping the row
                                 // keeps the region's height from changing.
                                 //
-                                // Sits under the label rather than inside the
-                                // alliance rows: the rows are the width-critical
-                                // element in the tightest region on the screen,
+                                // Sits under the label rather than inside the alliance rows:
+                                // the rows are the width-critical element in the tightest region on the screen,
                                 // and there is free vertical space beside them.
                                 HStack(spacing: 3) {
                                     Text(context.state.redAllianceLabel ?? "RED")
@@ -124,8 +119,7 @@ struct ScheduleLiveActivity: Widget {
                                     )
                                     .foregroundStyle(.blue)
                                 }
-                                // Fixed size: Dynamic Island regions have hard
-                                // pixel budgets and barely honour Dynamic Type.
+                                // Fixed size: Dynamic Island regions have hard pixel budgets and barely honour Dynamic Type.
                                 .font(.system(size: 11, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
@@ -288,9 +282,8 @@ private struct ScheduleLockScreenView: View {
             header
 
             HStack(spacing: 6) {
-                // "RED"/"BLUE" in quals, "A3"/"A?" in playoffs. The app decides
-                // which; see MatchStatusHelper.allianceLabel. The ?? only covers
-                // activities started before these fields existed.
+                // "RED"/"BLUE" in quals, "A3"/"A?" in playoffs. The app decides which;
+                // see MatchStatusHelper.allianceLabel. The ?? only covers activities started before these fields existed.
                 teamsBox(
                     state.redTeams,
                     color: .red,
@@ -305,8 +298,7 @@ private struct ScheduleLockScreenView: View {
 
             if !state.highlightedTeamsSummary.isEmpty {
                 // Nested so the divider gap is tighter than the outer rhythm.
-                // Flat in the parent VStack it took the spacing twice, once on
-                // each side, and the two sections drifted visibly apart.
+                // Flat in the parent VStack it took the spacing twice, once on each side, and the two sections drifted visibly apart.
                 VStack(alignment: .leading, spacing: 4) {
                     Divider()
                     highlightedTeams
@@ -315,6 +307,17 @@ private struct ScheduleLockScreenView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        // After the padding, not before: the overlay takes the bounds of whatever it's attached to.
+        .overlay(alignment: .bottom) {
+            if let overflow = state.highlightedOverflowCount, overflow > 0 {
+                Text("+\(overflow) more")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.bottom, 8)
+            }
+        }
     }
 
     private var header: some View {
@@ -374,20 +377,6 @@ private struct ScheduleLockScreenView: View {
                 .font(.caption2)
                 .fontWeight(.bold)
                 .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay(alignment: .center) {
-                    if let overflow = state.highlightedOverflowCount,
-                        overflow > 0
-                    {
-                        Text("+\(overflow) more")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            // Overlays are offered the parent's size as their proposal;
-                            // fixedSize keeps this at its ideal width so it can never be squeezed into a wrap.
-                            .fixedSize()
-                    }
-                }
 
             ForEach(state.highlightedTeamsSummary, id: \.team) { info in
                 let presentation =
