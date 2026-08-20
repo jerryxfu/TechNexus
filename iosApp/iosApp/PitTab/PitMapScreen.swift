@@ -80,12 +80,21 @@ struct PitMapScreen: View {
         .init(color: .black.opacity(0), location: 1),
     ])
 
-    /// The excess approaches this asymptotically and never reaches it, so a drag
-    /// past the limit eases to a stop instead of hitting a wall.
+    /// The excess approaches this asymptotically and never reaches it, so a drag past the limit eases to a stop instead of hitting a wall.
     private let overshoot: CGFloat = 64
 
     /// The same, for zoom: pinching below `minZoom` approaches this much shrink and never reaches it.
     private let zoomOvershoot: CGFloat = 0.25
+
+    // MARK: - Search
+
+    @State private var query = ""
+    @State private var focus: PitMapFocus?
+    @FocusState private var searchFocused: Bool
+
+    /// How many suggestions the chip row offers before it stops.
+    /// One digit into a sixty-team event matches a dozen or more, and a row you have to scroll through is slower than typing the next digit.
+    private let maxSuggestions = 12
 
     // MARK: - Scroll indicators
 
@@ -103,61 +112,15 @@ struct PitMapScreen: View {
 
     var body: some View {
         NavigationStack {
-            GeometryReader { proxy in
-                let viewSize = proxy.size
+            ZStack(alignment: .bottom) {
+                mapLayer
+                    // The keyboard must not resize this. `proxy.size` feeds the fit, the clamp and the indicators,
+                    // so letting it shrink would rescale and re-centre the whole map behind a keyboard that is about to go away again.
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
 
-                ZStack {
-                    PitMapCanvas(
-                        map: map,
-                        highlights: highlights,
-                        statuses: statuses,
-                        // The canvas fits the map itself. Letting the aspect-ratio modifier do it too would box the drawing
-                        // inside this frame and leave the pan maths below computing against a size the canvas never received.
-                        fitsAspectRatio: false,
-                        fitInset: fitInset,
-                        zoom: zoom,
-                        pan: pan
-                    )
-                    .frame(width: viewSize.width, height: viewSize.height)
-                    .scaleEffect(zoomRubber)
-                    .offset(rubberBand)
-
-                    // Outside the offset so both stay pinned while the map slides under them.
-                    voidShadow
-                    indicators(in: viewSize)
-                }
-                .frame(width: viewSize.width, height: viewSize.height)
-                .clipped()
-                .contentShape(Rectangle())
-                // Two separate modifiers rather than `.simultaneously(with:)`.
-                // Composing them into one recogniser lets the drag win the touch sequence outright.
-                .gesture(
-                    MagnificationGesture()
-                        .onChanged { value in
-                            magnify(to: committedZoom * value, in: viewSize)
-                        }
-                        .onEnded { _ in
-                            committedZoom = zoom
-                            pan = clampPan(pan, in: viewSize)
-                            committedPan = pan
-                            settle()
-                        }
-                )
-                .simultaneousGesture(
-                    DragGesture()
-                        .onChanged { value in
-                            drag(by: value.translation, in: viewSize)
-                        }
-                        .onEnded { _ in
-                            committedPan = pan
-                            settle()
-                        }
-                )
-                .onTapGesture(count: 2) { reset() }
-                .task {
-                    // Opening on your own pit is the whole reason someone taps through to this screen at an event.
-                    centreOnFirstHighlight(in: viewSize)
-                }
+                searchBar
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Pit map")
@@ -177,6 +140,77 @@ struct PitMapScreen: View {
                     }
                     .disabled(zoom == fitZoom && pan == .zero)
                 }
+                // The number pad has no return key, so without this there is no way to put the keyboard away.
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { searchFocused = false }
+                }
+            }
+        }
+    }
+
+    private var mapLayer: some View {
+        GeometryReader { proxy in
+            let viewSize = proxy.size
+
+            ZStack {
+                PitMapCanvas(
+                    map: map,
+                    highlights: highlights,
+                    statuses: statuses,
+                    // The canvas fits the map itself. Letting the aspect-ratio modifier do it too would box the drawing
+                    // inside this frame and leave the pan maths below computing against a size the canvas never received.
+                    fitsAspectRatio: false,
+                    fitInset: fitInset,
+                    focus: focus,
+                    zoom: zoom,
+                    pan: pan
+                )
+                .frame(width: viewSize.width, height: viewSize.height)
+                .scaleEffect(zoomRubber)
+                .offset(rubberBand)
+
+                // Outside the offset so both stay pinned while the map slides under them.
+                voidShadow
+                indicators(in: viewSize)
+            }
+            .frame(width: viewSize.width, height: viewSize.height)
+            .clipped()
+            .contentShape(Rectangle())
+            // Two separate modifiers rather than `.simultaneously(with:)`.
+            // Composing them into one recogniser lets the drag win the touch sequence outright.
+            .gesture(
+                MagnificationGesture()
+                    .onChanged { value in
+                        magnify(to: committedZoom * value, in: viewSize)
+                    }
+                    .onEnded { _ in
+                        committedZoom = zoom
+                        pan = clampPan(pan, in: viewSize)
+                        committedPan = pan
+                        settle()
+                    }
+            )
+            .simultaneousGesture(
+                DragGesture()
+                    .onChanged { value in
+                        drag(by: value.translation, in: viewSize)
+                    }
+                    .onEnded { _ in
+                        committedPan = pan
+                        settle()
+                    }
+            )
+            .onTapGesture(count: 2) { reset() }
+            .task {
+                // Opening on your own pit is the whole reason someone taps through to this screen at an event.
+                centreOnFirstHighlight(in: viewSize)
+            }
+            // Every search lands here: the chip row and the single-match case both only set `focus`, and this puts the map on it.
+            // One path, so a tapped suggestion and a typed exact match behave identically.
+            .onChange(of: focus) { newValue in
+                guard let team = newValue?.team else { return }
+                centre(on: team, in: viewSize)
             }
         }
     }
@@ -338,6 +372,105 @@ struct PitMapScreen: View {
         return Double(min(1, fromPan + fromZoom)) * maxVoidOpacity
     }
 
+    // MARK: - Search
+
+    /// Teams at this event whose number starts with what's been typed.
+    ///
+    /// Prefix, not contains. People read a team number left to right and type it the same way,
+    /// so `18` meaning 1815 and 1885 is predictable where it also meaning 5187 is not.
+    private var suggestions: [String] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+
+        return map.pits
+            .compactMap(\.team)
+            .filter { $0.hasPrefix(trimmed) }
+            .sorted { (Int($0) ?? .max, $0) < (Int($1) ?? .max, $1) }
+            .prefix(maxSuggestions)
+            .map { $0 }
+    }
+
+    private var searchBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if suggestions.count > 1 {
+                suggestionRow
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color(.tertiaryLabel))
+
+                TextField("Find a team", text: $query)
+                    .font(.system(size: 15))
+                    .keyboardType(.numberPad)
+                    .focused($searchFocused)
+                    .submitLabel(.done)
+
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                        focus = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 15))
+                            .foregroundColor(Color(.tertiaryLabel))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().stroke(Color(.systemGray4), lineWidth: 0.5))
+        }
+        // Narrowing to one match focuses it; anything else clears. Typing a digit
+        // that widens the result set should take the marker off a pit that no longer matches, not leave it sitting there.
+        .onChange(of: query) { _ in
+            let hits = suggestions
+            if hits.count == 1 {
+                // A fresh `since` even for the same team, so re-searching a pit
+                // you are already on restarts the blink instead of doing nothing.
+                focus = PitMapFocus(team: hits[0])
+            } else if let current = focus?.team, !hits.contains(current) {
+                // Cleared only when the marked pit stops matching. Checking the count instead would drop a perfectly
+                // good marker the moment a team number turns out to be a prefix of another one at the same
+                // event: 181 and 1815 both exist as team numbers.
+                focus = nil
+            }
+        }
+    }
+
+    /// Tap to jump, for when you have typed enough to see it but not enough to
+    /// be unambiguous.
+    private var suggestionRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(suggestions, id: \.self) { team in
+                    Button {
+                        query = team
+                        // Set here as well as through `query`, because a tap is unambiguous even when the resulting prefix isn't.
+                        focus = PitMapFocus(team: team)
+                        searchFocused = false
+                    } label: {
+                        Text(team)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .overlay(
+                                Capsule().stroke(Color(.systemGray4), lineWidth: 0.5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+        .frame(height: 28)
+    }
+
     // MARK: - Scroll indicators
 
     /// Where you are in the map, for orientation rather than for grabbing.
@@ -347,8 +480,7 @@ struct PitMapScreen: View {
     /// which means nothing at all at or below the fit scale, same as a `ScrollView` whose content fits.
     private func indicators(in viewSize: CGSize) -> some View {
         let drawn = drawnSize(in: viewSize)
-        // The same box `clampPan` measures against, so a thumb reaches the end of
-        // its track exactly when the map reaches its margin.
+        // The same box `clampPan` measures against, so a thumb reaches the end of its track exactly when the map reaches its margin.
         let box = contentBox(in: viewSize)
         let hTrack = viewSize.width - indicatorMargin * 2 - indicatorGutter
         let vTrack = viewSize.height - indicatorMargin * 2 - indicatorGutter
@@ -428,14 +560,14 @@ struct PitMapScreen: View {
     // MARK: - Opening position
 
     /// Zooms in and centres on the first highlighted team that actually has a pit at this event.
-    /// Does nothing when no highlighted team is here.
-    private func centreOnFirstHighlight(in viewSize: CGSize) {
-        guard
-            map.size.x > 0, map.size.y > 0,
-            let pit = highlights.keys
-                .compactMap({ map.pitFor(team: $0) })
-                .first
-        else { return }
+    /// Does nothing when no highlighted team is here. Puts a team's pit in the middle of the screen at `focusZoom`.
+    private func centre(on team: String, in viewSize: CGSize) {
+        guard let pit = map.pitFor(team: team) else { return }
+        centre(on: pit, in: viewSize)
+    }
+
+    private func centre(on pit: PitBox, in viewSize: CGSize) {
+        guard map.size.x > 0, map.size.y > 0 else { return }
 
         zoom = clampZoom(focusZoom)
         committedZoom = zoom
@@ -447,8 +579,7 @@ struct PitMapScreen: View {
                 inset: fitInset
             ) * zoom
 
-        // The canvas anchors the map's centre to the view's centre, so the pan
-        // needed is the pit's offset from that centre, scaled and negated.
+        // The canvas anchors the map's centre to the view's centre, so the pan needed is the pit's offset from that centre, scaled and negated.
         let offset = CGSize(
             width: -(pit.geometry.position.x - map.size.x / 2) * scale,
             height: -(pit.geometry.position.y - map.size.y / 2) * scale
@@ -456,9 +587,20 @@ struct PitMapScreen: View {
         pan = clampPan(offset, in: viewSize)
         committedPan = pan
 
-        // The screen opens zoomed in on one pit with no gesture behind it, which
-        // is the single most disorienting moment this view has. Show where that is on the map, then get out of the way.
         showIndicators()
         scheduleIndicatorHide()
+    }
+
+    private func centreOnFirstHighlight(in viewSize: CGSize) {
+        guard
+            map.size.x > 0, map.size.y > 0,
+            let pit = highlights.keys
+                .compactMap({ map.pitFor(team: $0) })
+                .first
+        else { return }
+
+        // Centring already flashes the indicators, which is what this screen most needs on open:
+        // it arrives zoomed onto one pit with no gesture behind it, so nothing else says where that is on the map.
+        centre(on: pit, in: viewSize)
     }
 }

@@ -60,12 +60,7 @@ struct HighlightTeamsBar: View {
                 ) { pair in
                     let team = pair.key
                     let teamColor: Color = pair.value
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(teamColor)
-                            .frame(width: 9, height: 9)
-                        Text(team)
-                            .font(.system(size: 11, weight: .medium))
+                    HighlightedTeamPill(team: team, color: teamColor) {
                         Button {
                             withAnimation {
                                 _ = highlightedTeams.removeValue(forKey: team)
@@ -77,10 +72,6 @@ struct HighlightTeamsBar: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(teamColor.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
         }

@@ -38,6 +38,12 @@ struct PitMapCanvas: View {
     /// bezels on its limiting axis while floating in letterbox on the other.
     var fitInset: CGSize = .zero
 
+    /// The pit a search has landed on, if any. Blinks until cleared.
+    var focus: PitMapFocus?
+
+    /// Half a blink cycle. A hard square wave, not a fade for easy spotting.
+    static let blinkHalfPeriod: Double = 0.22
+
     /// Extra magnification on top of fit-to-view. `1` fits the whole map.
     var zoom: CGFloat = 1
 
@@ -56,9 +62,21 @@ struct PitMapCanvas: View {
         }
     }
 
+    /// Wrapped in a `TimelineView` so the focus marker can blink.
+    ///
+    /// `withAnimation` cannot touch anything a `Canvas` draws, so the blink has
+    /// to come from arithmetic on a clock rather than from SwiftUI's animation
+    /// system. The schedule is always attached and `paused` when nothing is
+    /// focused, rather than an `if` around the view: a conditional here would be
+    /// two view identities and would tear the canvas down and rebuild it
+    /// mid-gesture the moment a search landed.
     private var canvas: some View {
-        Canvas { context, size in
-            draw(into: context, viewSize: size)
+        TimelineView(
+            .animation(minimumInterval: Self.blinkHalfPeriod / 2, paused: focus == nil)
+        ) { timeline in
+            Canvas { context, size in
+                draw(into: context, viewSize: size, now: timeline.date)
+            }
         }
     }
 
@@ -69,7 +87,7 @@ struct PitMapCanvas: View {
 
     // MARK: - Transform
 
-    private func draw(into context: GraphicsContext, viewSize: CGSize) {
+    private func draw(into context: GraphicsContext, viewSize: CGSize, now: Date) {
         let w = map.size.x
         let h = map.size.y
         guard w > 0, h > 0, viewSize.width > 0, viewSize.height > 0 else { return }
@@ -91,7 +109,7 @@ struct PitMapCanvas: View {
 
         drawWalls(in: canvas)
         drawAreas(in: canvas, showsText: showsText)
-        drawPits(in: canvas, showsText: showsText)
+        drawPits(in: canvas, showsText: showsText, now: now)
         drawArrows(in: canvas)
         drawLabels(in: canvas, showsText: showsText)
     }
@@ -220,7 +238,7 @@ struct PitMapCanvas: View {
         )
     }
 
-    private func drawPits(in context: GraphicsContext, showsText: Bool) {
+    private func drawPits(in context: GraphicsContext, showsText: Bool, now: Date) {
         let styled = map.pits.map { style(for: $0) }
 
         // Four passes rather than one loop that fills, strokes and labels each pit before moving to the next.
@@ -232,8 +250,49 @@ struct PitMapCanvas: View {
         for item in styled where !item.isEmphasised { strokePit(item, in: context) }
         for item in styled where item.isEmphasised { strokePit(item, in: context) }
 
-        guard showsText else { return }
-        for item in styled { labelPit(item, in: context) }
+        if showsText {
+            for item in styled { labelPit(item, in: context) }
+        }
+
+        // Dead last, on top of every fill, border and label.
+        //
+        // Pits sit edge to edge with no gutter, so a ring drawn outside a pit's bounds necessarily covers part of its neighbours.
+        // Drawing it after everything else makes that unambiguous rather than dependent on where the pit fell in the list,
+        // and a marker answering "it's this one" should sit above the map anyway.
+        if let focus, let item = styled.first(where: { $0.pit.team == focus.team }) {
+            drawFocusRing(item, in: context, focus: focus, now: now)
+        }
+    }
+
+    /// A hard on/off ring, no interpolation.
+    ///
+    /// Phase is measured from `focus.since` rather than from absolute time so the ring is always *on* the instant a search lands.
+    /// Keyed off a wall clock because the value is read inside a `Canvas` closure, where SwiftUI's animation system can't reach it.
+    private func drawFocusRing(
+        _ item: StyledPit,
+        in context: GraphicsContext,
+        focus: PitMapFocus,
+        now: Date
+    ) {
+        let elapsed = max(0, now.timeIntervalSince(focus.since))
+        guard Int(elapsed / Self.blinkHalfPeriod).isMultiple(of: 2) else { return }
+
+        inElement(item.pit.geometry, context) { layer, rect in
+            let width: CGFloat = 5
+            // Outside the pit's own border, which the emphasis pass has already drawn inside it, so the two read as separate marks.
+            let bounds = rect.insetBy(dx: -width / 2, dy: -width / 2)
+            layer.stroke(
+                Path(
+                    roundedRect: bounds,
+                    cornerRadius: cornerRadius(for: rect) + width / 2
+                ),
+                // Ink, not a hue. Every colour on this map already means something,
+                // a highlight palette entry or a queuing status, and a search result is none of those.
+                // `.primary` is also the one colour guaranteed to contrast in both appearances.
+                with: .color(.primary),
+                lineWidth: width
+            )
+        }
     }
 
     /// Shared by the fill and the border so the two stay concentric.

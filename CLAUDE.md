@@ -26,7 +26,9 @@ problem than it was.
   Claims in this file that were later disproved are marked as such rather than deleted, because the wrong belief is
   usually the interesting part
 - **Two files always change together:** `MatchStatusHelper` (app) and `LiveActivityFormat` (extension) duplicate the
-  status colours, because the extension doesn't link ComposeApp
+  status colours, because the extension doesn't link ComposeApp. `PitStatusHighlights` is a third consumer but not a
+  third copy — its `ranked` table maps display labels to two-letter codes and reads the colours back out of
+  `MatchStatusHelper`, so a palette change still lands in exactly two places
 - **`git diff project.pbxproj` after any file operation in Xcode.** A one-line change is normal; twenty deleted lines in
   the `PBXFileSystemSynchronized*` sections never is
 - **Guard every scripted `pbxproj` edit.** `assert old in s` before each replacement, so a missed pattern fails loudly
@@ -50,8 +52,8 @@ It cannot be submitted yet. One blocker is outside the code; the rest is a list 
 |------------------------|-------------------------------------------------|
 | Schedule tab           | Pull-to-refresh, offline cache, 15s poll        |
 | Live Activity          | Lock Screen + Island, 3 / 2 team cap            |
-| Pit tab                | Robot card, pit map, address / team fallbacks   |
-| Pit map                | Renders demo1815; untested at a real event      |
+| Pit tab                | Robot card, Pit map + Teams sections, legend    |
+| Pit map                | Pan/zoom, void overscroll, indicators, search   |
 | Settings               | Auto-save, reset to defaults, picker, About     |
 | Deployment target      | Pinned to 16.2, six configs, builds clean       |
 | Stats / TechBotics tab | Commented out in `ContentView`                  |
@@ -300,6 +302,48 @@ The server is live at `https://nexus.jerryxf.net`, on Cloud Run in project `tech
   revision, and smoke-tests `/events` through the public hostname. Auth is a service account key in `GCP_SA_KEY`; it
   does not expire and the repo is public, so rotate it after the season or move to Workload Identity Federation. The
   deploy step passes **image only** — passing `env_vars` would replace the whole map rather than merge into it
+
+### Pit map, 19–20 Aug
+
+Six changes to the pit map, in the order they were made. The two canvas fixes are independent of the rest.
+
+- **Status labels are two-letter codes on the map.** A pit is 100 units square and "Queuing soon" measures about the
+  same at a readable size, so it was clipped on both sides at every zoom. `TeamStatus.short` carries
+  `OF / OD / NQ / QS`, drawn at 22 bold where the full label was 17. `PitStatusHighlights.ranked` became a table of
+  `(label, short, raw)` — `derive` still matches on `label`, and `raw` exists only so `legend` can ask
+  `MatchStatusHelper` for the colour instead of listing a third copy of the palette. Adding a status is one row, but it
+  also lengthens the map legend.
+- **Fill/stroke pass split and inset borders** in `drawPits`. See *Gotchas*.
+- **Overscroll shadow instead of a permanent vignette.** `edgeShadow` was an always-on fade in
+  `systemGroupedBackground`; it is now four black gradients driven by the matching component of `rubberBand`, plus the
+  sub-fit zoom deficit added to all four. `minZoom` dropped to 0.8 so pinching out past the fit is a resting state
+  rather than pure rubber band, and `fitZoom` is a separate constant for what the toolbar button targets. Zoom
+  overscroll rides a `zoomRubber` `.scaleEffect` for the same reason pan overscroll rides `.offset`.
+- **Scroll indicators**, drawn rather than native — there is no `ScrollView` here for `showsIndicators` to attach to.
+  Per axis, only when that axis has slack, which means nothing at or below the fit. Flash on open, because the screen
+  arrives zoomed onto one pit with no gesture behind it.
+- **Two fixed sections** in `PitLocationSection`, replacing the map-XOR-addresses-XOR-teams ladder. `LoadState` went
+  from five cases to three and `Loaded` carries all three fidelities together. Fetches `/map` and `/teams` always and
+  `/pits`
+  only when the map is absent or carries no team assignments — a drawn map already holds every pairing in its boxes.
+  Teams sort numerically; as strings, 999 filed after 1815. The old `myPitSummary` footnote is now pill → arrow → grey
+  `TeamPill` rows, above which sits a concatenated-`Text` caption that doubles as the legend for the two-letter codes.
+- **Search**, bottom of the full-screen map. Prefix matching, chip row when ambiguous, auto-centre when exactly one
+  match. Both paths only set `focus`; one `.onChange(of: focus)` does the centring, so a tapped chip and a typed match
+  behave identically. Clearing is guarded on the marked team no longer matching rather than on the match count — 181 and
+  1815 are both real team numbers, so an exact tap can still leave two suggestions.
+
+`HighlightedTeamPill` was lifted out of `HighlightTeamsBar` so the pit rows and the schedule bar share one definition;
+the colour dot is what ties a team on the map to a team in the schedule, so two copies drifting would break the thing
+the dot is for. The bar passes its delete button through the pill's accessory slot.
+
+Exercised on the simulator against `demo1815` only, which has a map, addresses and a roster. Three branches have not
+been run: `PitMapFailed` as distinct from `NotPublished`, the bare team grid (teams present, zero addresses), and the
+`/pits`
+fallback. Nor has landscape or iPad geometry, where the limiting axis flips and `fitInset`'s asymmetry stops mattering.
+Deliberately left alone: `textVisibilityThreshold` is still 0.14 even though two bold characters likely survive further
+out than "Queuing soon" did; the legend is preview-only; a team with no pit shows a blank cell rather than a
+placeholder, because an em dash in a column of addresses reads as a pit called "—".
 
 ### Schedule, offline and alliances, 18 Aug
 
@@ -1003,6 +1047,39 @@ them top-level (`PitMapAvailable`, not `PitMapResult.Available`) and there is on
 inside `draw`, so the full-screen viewer's pan clamping was computing against a viewport the canvas never received. The
 canvas now takes a `fitsAspectRatio` flag and exposes `fitScale` statically so both agree by construction.
 
+**`withAnimation` cannot reach a `Canvas`, and `TimelineView` is the way in.** The existing note is that a value read
+inside a draw closure is not in the view tree, so wrapping its assignment in `withAnimation` re-runs the closure once at
+the final value. The other half is what to do instead. For *springback*, split the animated part out as a real
+modifier —
+`pan` stays hard-clamped and feeds the canvas, while `rubberBand` rides an `.offset` and `zoomRubber` a `.scaleEffect`.
+For a *continuous* animation there is nothing to split, so drive it from a clock:
+`TimelineView(.animation(minimumInterval:paused:))` hands the draw closure a `Date` and the phase becomes arithmetic.
+Attach the schedule unconditionally and toggle `paused` — an `if` around the view is two identities and tears the canvas
+down and rebuilds it, which in `PitMapScreen` means mid-gesture.
+
+**The same trap wears a second disguise: gradient colours.** `LinearGradient(colors: [void.opacity(x), ...])` rebuilds
+once at the final value and *snaps*, while the `.offset` it is describing springs over 0.35s. A gradient is not
+animatable; `.opacity` is. Build the gradient from fixed colours and put the varying part in an `.opacity` modifier.
+Applies to any value baked into a non-animatable initializer, not just gradients.
+
+**Draw order inside a `Canvas` is data order, which is somebody else's alphabet.** `demo1815`'s pits are 100 units
+square on a 100-unit grid — edge to edge, no gutter — and Nexus keys them in an object, so the flattened order is `A1, A10, A11,
+A12, A2`. Filling and stroking each pit in one loop therefore let a neighbour's fill land on the border of the pit next
+to it, and *which* neighbour won came down to sort order: a highlight read as above the grid lines in some places and
+under them in others. `drawPits` resolves every pit's colours up front into `StyledPit`, then runs separate passes —
+fills, plain borders, emphasised borders, labels, focus ring. Resolving first is what makes the split safe; three passes
+each recomputing their own answer would be a worse version of the same bug. Borders also inset by half their width
+(`.strokeBorder` semantics, not `.stroke`), so a 6pt ring cannot reach into the next pit at all.
+
+**One margin, one function.** `PitMapScreen.contentBox` is the viewport less `fitInset` on every side, and the fit, the
+pan clamp and the scroll indicators must all measure against it. Every combination of *some* of them has now been
+shipped and been wrong: inset on all three plus an always-on vignette read as no padding, because the vignette sat
+inside the inset and ghosted the map before it reached the margin; inset on none made "fit to screen" jam the map
+against both bezels; inset on the fit alone made the margin vanish the moment you zoomed in. Indicators measuring
+against the raw viewport park the thumb a margin's width early. `fitScale` takes the inset as a *parameter* rather than
+callers pre-shrinking `viewSize`, because the canvas still has to draw across the full surface — fit into a smaller box
+and draw into one too, and no zoom level can reach the margin.
+
 **"Queuing soon" is Nexus's default, not a signal.** Measured on `demo1815` it spans 0 to 87 minutes out and covered 72
 of 144 pits. `MatchStatusHelper.queuingHorizonMs` is the single horizon both the schedule badges and the pit map apply —
 it was 10 minutes in `MatchCardView` while the comment above it said 30, so nobody had looked at that number in a while.
@@ -1038,16 +1115,18 @@ iosApp/iosApp/
     ScheduleActivityAttributes.swift            shared with the extension
     ScheduleLiveActivityManager.swift           activity lifecycle, 3-team payload cap
     Components/MatchCardView.swift              match card
-    Components/TeamPill.swift                   team chip
+    Components/TeamPill.swift                   team chip (also the pit-address box)
+    Components/HighlightedTeamPill.swift        NEW — dot + number, shared with the pit map
     Components/TimingCarouselView.swift         estimated times
   PitTab/
     PitTabView.swift                            compact robot row + pit section
     RobotCheatSheet.swift                       model
     RobotCheatSheetView.swift                   sheet, unit toggles
-    PitLocationSection.swift                    NEW — map / addresses / teams ladder
-    PitMapCanvas.swift                          NEW — Canvas renderer, fitScale
-    PitMapScreen.swift                          NEW — full screen, pan/zoom, rubber band
-    PitStatusHighlights.swift                   NEW — TeamStatus, per-team live status
+    PitLocationSection.swift                    Pit map + Teams sections, legend, pit rows
+    PitMapCanvas.swift                          Canvas renderer, fitScale, draw passes
+    PitMapScreen.swift                          full screen, pan/zoom, void, indicators, search
+    PitMapFocus.swift                           NEW — searched pit + blink start
+    PitStatusHighlights.swift                   TeamStatus, short codes, legend
   SettingsTab/
     SettingsView.swift                          event picker row, team, LA toggle
     EventPickerView.swift                       NEW — picker sheet

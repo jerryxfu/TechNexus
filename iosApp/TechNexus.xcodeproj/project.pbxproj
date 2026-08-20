@@ -45,21 +45,21 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		8B17E35585BD01D26753FB93 /* Exceptions for "iosApp" folder in "TechNexus" target */ = {
+		8B17E35585BD01D26753FB93 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
 			target = ABE280FAB7D7A8D4B56FDDB1 /* TechNexus */;
 		};
-		C44ECA8E2F8AA5E500C32AF6 /* Exceptions for "iosApp" folder in "TechNexusExtension" target */ = {
+		C44ECA8E2F8AA5E500C32AF6 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				ScheduleTab/ScheduleActivityAttributes.swift,
 			);
 			target = C4D69BE72F874332001E4AF9 /* TechNexusExtension */;
 		};
-		C4D69C012F874333001E4AF9 /* Exceptions for "TechNexusExtension" folder in "TechNexusExtension" target */ = {
+		C4D69C012F874333001E4AF9 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -72,8 +72,12 @@
 		A05F154E77A4D280FB24DEB2 /* iosApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				8B17E35585BD01D26753FB93 /* Exceptions for "iosApp" folder in "TechNexus" target */,
-				C44ECA8E2F8AA5E500C32AF6 /* Exceptions for "iosApp" folder in "TechNexusExtension" target */,
+				8B17E35585BD01D26753FB93 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				C44ECA8E2F8AA5E500C32AF6 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
 			);
 			path = iosApp;
 			sourceTree = "<group>";
@@ -81,13 +85,21 @@
 		C4D69BEE2F874332001E4AF9 /* TechNexusExtension */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				C4D69C012F874333001E4AF9 /* Exceptions for "TechNexusExtension" folder in "TechNexusExtension" target */,
+				C4D69C012F874333001E4AF9 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
 			);
 			path = TechNexusExtension;
 			sourceTree = "<group>";
 		};
 		E5C2E8595ABF6942542D2CE5 /* Configuration */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
 			path = Configuration;
 			sourceTree = "<group>";
 		};

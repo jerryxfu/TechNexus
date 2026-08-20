@@ -24,6 +24,12 @@ file iOS 17-only, and nothing surfaces until someone pins the deployment target 
 initializer form.** One `.clipShape(.rect(...))` in `SettingsCard` was the only thing standing between this app and its
 stated iOS 16 support.
 
+`Text` has the same trap without the shorthand tell. **`Text.foregroundStyle` is iOS 17**; `Text.foregroundColor` is 13
+and is what a concatenated run needs on this floor. The `View` modifier of the same name *is* iOS 15, so
+`.foregroundStyle(.secondary)` on a `Text` compiles happily right up until you try to `+` it with another `Text` — at
+which point it has stopped being a `Text` and the error names the operator rather than the modifier. Anything built with
+`Text(...) + Text(...)`, like `PitLocationSection.mapCaption`, must use `.foregroundColor` throughout.
+
 Genuinely newer APIs are fine behind `if #available`. Note that the check widens the availability context for everything
 inside it — `.rect` inside an `if #available(iOS 26.0, *)` block compiles against a 16.0 target, because that branch can
 only run on 26.
@@ -104,7 +110,7 @@ them with:
 
 ```swift
 .lineLimit(1)
-.minimumScaleFactor(0.85)
+    .minimumScaleFactor(0.85)
 ```
 
 ---
@@ -176,7 +182,7 @@ Use system curves and let SwiftUI pick the duration:
 
 ```swift
 .animation(.default, value: hasChanges)   // yes
-.easeInOut(duration: 0.3)                 // no, unless you can justify it
+    .easeInOut(duration: 0.3)                 // no, unless you can justify it
 ```
 
 Drive animation from state changes, not from mutating state inside `.onAppear`. A view that reappears — a tab switch, a
@@ -187,8 +193,12 @@ This has bitten this codebase twice:
 // Restarts correctly
 .opacity(isDimmed ? 0.25 : 1.0)
 .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isDimmed)
-.onAppear { isDimmed = true }
-.onDisappear { isDimmed = false }
+.onAppear {
+    isDimmed = true
+}
+.onDisappear {
+    isDimmed = false
+}
 ```
 
 A `repeatForever` animation started from `.onAppear` fires while the view is still being inserted, so it captures the
