@@ -13,8 +13,7 @@ import SwiftUI
 struct PitMapCanvas: View {
     let map: PitMap
 
-    /// Team number to colour, from `HighlightedTeamsStore`.
-    /// Drawn as the pit's **fill**, because it answers "which one is mine".
+    /// Team number to colour, from `HighlightedTeamsStore`. Drawn as the pit's **fill**, because it answers "which one is mine".
     var highlights: [String: Color] = [:]
 
     /// Team number to live match status, from `PitStatusHighlights`.
@@ -31,6 +30,13 @@ struct PitMapCanvas: View {
     /// Leaving it on there fits the map twice, once into the aspect box and again inside `draw`,
     /// and the screen's pan clamping then computes against a size the canvas never actually had.
     var fitsAspectRatio: Bool = true
+
+    /// Margin the map is fitted inside, in points, at `zoom == 1`.
+    ///
+    /// Zero for the inline preview, which already has real padding around it.
+    /// Non-zero full screen, where without it the map sits flush against both
+    /// bezels on its limiting axis while floating in letterbox on the other.
+    var fitInset: CGSize = .zero
 
     /// Extra magnification on top of fit-to-view. `1` fits the whole map.
     var zoom: CGFloat = 1
@@ -68,7 +74,7 @@ struct PitMapCanvas: View {
         let h = map.size.y
         guard w > 0, h > 0, viewSize.width > 0, viewSize.height > 0 else { return }
 
-        let scale = Self.fitScale(mapSize: map.size, viewSize: viewSize) * zoom
+        let scale = Self.fitScale(mapSize: map.size, viewSize: viewSize, inset: fitInset) * zoom
 
         var canvas = context
         // Anchor the map's centre to the view's centre, so zoom magnifies about
@@ -90,12 +96,24 @@ struct PitMapCanvas: View {
         drawLabels(in: canvas, showsText: showsText)
     }
 
-    /// The scale at which the whole map fits `viewSize`.
+    /// The scale at which the whole map fits `viewSize`, less `inset` on each side.
+    ///
     /// Static and shared because `PitMapScreen` needs the identical number for its pan clamping.
-    /// Padding is deliberately *not* folded in: the caller shrinks the view it hands over, so this stays a pure fit.
-    static func fitScale(mapSize: MapPoint, viewSize: CGSize) -> CGFloat {
+    /// The inset is a parameter rather than something the caller pre-subtracts from `viewSize`,
+    /// because the canvas still has to *draw* across the full surface and a map fitted into a smaller
+    /// box but drawn on a smaller box too can't be panned to its margin when you zoom in.
+    ///
+    /// Per-axis, because the two are not the same problem: the side margin is the one you see on a portrait phone,
+    /// where the map's own aspect ratio already leaves plenty of room above and below.
+    static func fitScale(
+        mapSize: MapPoint,
+        viewSize: CGSize,
+        inset: CGSize = .zero
+    ) -> CGFloat {
         guard mapSize.x > 0, mapSize.y > 0 else { return 1 }
-        return min(viewSize.width / mapSize.x, viewSize.height / mapSize.y)
+        let width = max(1, viewSize.width - inset.width * 2)
+        let height = max(1, viewSize.height - inset.height * 2)
+        return min(width / mapSize.x, height / mapSize.y)
     }
 
     /// Runs `body` in a context translated to the element's centre and rotated by its angle, handing back a rect centred on the origin.
@@ -148,9 +166,8 @@ struct PitMapCanvas: View {
                     area.label,
                     in: layer,
                     rect: rect,
-                    // Fixed sizes are in map units, not points — this is
-                    // geometry inside a scaled context, not typography, so
-                    // Dynamic Type would fight the drawing rather than serve it.
+                    // Fixed sizes are in map units, not points because this is geometry inside a scaled context,
+                    // not typography, so Dynamic Type would fight the drawing rather than serve it.
                     size: 24,
                     weight: .medium,
                     color: .secondary
@@ -159,63 +176,126 @@ struct PitMapCanvas: View {
         }
     }
 
+    /// One pit with its colours already decided.
+    /// Resolved up front so the passes below cannot disagree about what a pit looks like.
+    /// Splitting the draw into passes is only safe if every pass is reading the same answer.
+    private struct StyledPit {
+        let pit: PitBox
+        let fill: Color
+        let outline: Color
+        let outlineWidth: CGFloat
+        let status: TeamStatus?
+        let textWeight: Font.Weight
+        let textColor: Color
+
+        /// Highlighted or status-bearing. Strokes after the plain pits, so where two borders meet the one that means something is on top.
+        let isEmphasised: Bool
+    }
+
+    private func style(for pit: PitBox) -> StyledPit {
+        let highlight = pit.team.flatMap { highlights[$0] }
+        let status = pit.team.flatMap { statuses[$0] }
+        let statusColor = status?.color
+        let isAssigned = pit.team != nil
+
+        // Status outranks the personal highlight on the outline: it is the thing that changes,
+        // and a pit that is both keeps its fill colour so it stays findable either way.
+        let outline = statusColor ?? highlight
+
+        return StyledPit(
+            pit: pit,
+            // An unassigned pit stays visible but recessive. It's a landmark when you're counting down a row,
+            // so hiding it would make the map harder to walk, not cleaner.
+            fill: highlight?.opacity(0.28)
+                ?? statusColor?.opacity(0.16)
+                ?? (isAssigned
+                    ? Color(.secondarySystemGroupedBackground)
+                    : Color(.systemGray6)),
+            outline: outline ?? Color(.systemGray3),
+            outlineWidth: outline == nil ? 2 : 6,
+            status: status,
+            textWeight: (highlight ?? statusColor) == nil ? .semibold : .bold,
+            textColor: isAssigned ? .primary : Color(.tertiaryLabel),
+            isEmphasised: outline != nil
+        )
+    }
+
     private func drawPits(in context: GraphicsContext, showsText: Bool) {
-        for pit in map.pits {
-            let highlight = pit.team.flatMap { highlights[$0] }
-            let status = pit.team.flatMap { statuses[$0] }
-            let statusColor = status?.color
-            let isAssigned = pit.team != nil
+        let styled = map.pits.map { style(for: $0) }
 
-            inElement(pit.geometry, context) { layer, rect in
-                let shape = Path(
-                    roundedRect: rect,
-                    cornerRadius: min(6, rect.width / 10)
-                )
+        // Four passes rather than one loop that fills, strokes and labels each pit before moving to the next.
+        //
+        // Pits sit edge to edge with no gutter. Filling and stroking in one pass let a neighbour's fill land on
+        // the border of the pit next to it, and which neighbour won came down to the alphabet. That is why a
+        // highlight read as sitting above the grid lines in some places and under them in others.
+        for item in styled { fillPit(item, in: context) }
+        for item in styled where !item.isEmphasised { strokePit(item, in: context) }
+        for item in styled where item.isEmphasised { strokePit(item, in: context) }
 
-                // An unassigned pit stays visible but recessive. It's a landmark when you're counting down a row,
-                // so hiding it would make the map harder to walk, not cleaner.
-                let fill: Color =
-                    highlight?.opacity(0.28)
-                    ?? statusColor?.opacity(0.16)
-                    ?? (isAssigned
-                        ? Color(.secondarySystemGroupedBackground)
-                        : Color(.systemGray6))
+        guard showsText else { return }
+        for item in styled { labelPit(item, in: context) }
+    }
 
-                layer.fill(shape, with: .color(fill))
+    /// Shared by the fill and the border so the two stay concentric.
+    private func cornerRadius(for rect: CGRect) -> CGFloat {
+        min(6, rect.width / 10)
+    }
 
-                // Status outranks the personal highlight on the outline: it is the thing that changes,
-                // and a pit that is both keeps its fill colour so it stays findable either way.
-                let outline = statusColor ?? highlight
-                layer.stroke(
-                    shape,
-                    with: .color(outline ?? Color(.systemGray3)),
-                    lineWidth: outline == nil ? 2 : 6
-                )
+    private func fillPit(_ item: StyledPit, in context: GraphicsContext) {
+        inElement(item.pit.geometry, context) { layer, rect in
+            layer.fill(
+                Path(roundedRect: rect, cornerRadius: cornerRadius(for: rect)),
+                with: .color(item.fill)
+            )
+        }
+    }
 
-                guard showsText else { return }
+    /// Strokes *inside* the pit's own bounds, `.strokeBorder` semantics rather than `.stroke`.
+    /// `GraphicsContext.stroke` centres the line on the path, so the 6pt emphasis ring put 3pt of itself into the neighbouring pit.
+    /// Insetting by half the width keeps every border within the pit it belongs to,
+    /// and two adjacent borders then abut instead of overlapping.
+    private func strokePit(_ item: StyledPit, in context: GraphicsContext) {
+        inElement(item.pit.geometry, context) { layer, rect in
+            let inset = item.outlineWidth / 2
+            let bounds = rect.insetBy(dx: inset, dy: inset)
+            guard bounds.width > 0, bounds.height > 0 else { return }
 
-                // With a status there are two lines, so the number shifts up to make room rather than the pair drifting off centre.
+            layer.stroke(
+                Path(
+                    roundedRect: bounds,
+                    cornerRadius: max(0, cornerRadius(for: rect) - inset)
+                ),
+                with: .color(item.outline),
+                lineWidth: item.outlineWidth
+            )
+        }
+    }
+
+    private func labelPit(_ item: StyledPit, in context: GraphicsContext) {
+        inElement(item.pit.geometry, context) { layer, rect in
+            // With a status there are two lines, so the number shifts up to make room rather than the pair drifting off centre.
+            // The offsets moved with the code's size: at 30 over 22 the pair spans roughly -25 to +25 of a 100-unit pit and sits centred.
+            drawText(
+                item.pit.team ?? item.pit.address,
+                in: layer,
+                rect: rect,
+                at: CGPoint(x: 0, y: item.status == nil ? 0 : -rect.height * 0.15),
+                size: 30,
+                weight: item.textWeight,
+                color: item.textColor
+            )
+
+            if let status = item.status {
+                // Two-letter code
                 drawText(
-                    pit.team ?? pit.address,
+                    status.short,
                     in: layer,
                     rect: rect,
-                    at: CGPoint(x: 0, y: status == nil ? 0 : -rect.height * 0.11),
-                    size: 30,
-                    weight: (highlight ?? statusColor) == nil ? .semibold : .bold,
-                    color: isAssigned ? .primary : Color(.tertiaryLabel)
+                    at: CGPoint(x: 0, y: rect.height * 0.17),
+                    size: 22,
+                    weight: .bold,
+                    color: status.color
                 )
-
-                if let status {
-                    drawText(
-                        status.label,
-                        in: layer,
-                        rect: rect,
-                        at: CGPoint(x: 0, y: rect.height * 0.19),
-                        size: 17,
-                        weight: .medium,
-                        color: status.color
-                    )
-                }
             }
         }
     }
