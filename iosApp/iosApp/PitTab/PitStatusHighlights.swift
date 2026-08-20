@@ -1,13 +1,6 @@
 import ComposeApp
 import SwiftUI
 
-/// Per-team colours derived from what each team's next match is doing right now.
-///
-/// Separate from `HighlightedTeamsStore`, which is a *preference* — the teams you
-/// chose to follow. This is transient fact: who is on field, who is walking to
-/// the field, who should start packing up. The two are shown together rather
-/// than one overriding the other, because they answer different questions and
-/// you usually want both at once.
 /// A team's live match status: what to call it, and what colour it is.
 ///
 /// Carried together rather than as a bare colour so every surface can print the
@@ -19,6 +12,13 @@ struct TeamStatus {
     let color: Color
 }
 
+/// Per-team colours derived from what each team's next match is doing right now.
+///
+/// Separate from `HighlightedTeamsStore`, which is a *preference* — the teams you
+/// chose to follow. This is transient fact: who is on field, who is walking to
+/// the field, who should start packing up. The two are shown together rather
+/// than one overriding the other, because they answer different questions and
+/// you usually want both at once.
 enum PitStatusHighlights {
     /// Statuses worth colouring, most urgent first. The index is the precedence.
     ///
@@ -58,6 +58,14 @@ enum PitStatusHighlights {
 
             guard let rank = ranked.firstIndex(of: display.text) else { continue }
 
+            // The one time check, and it lives in `MatchStatusHelper` so the
+            // schedule cards apply the identical horizon. Without it "Queuing
+            // soon" is effectively the default for any match not yet playing —
+            // 72 of 144 pits on the demo event — and the three statuses that
+            // mean "go now" drown in it.
+            if MatchStatusHelper.isFarFromQueuing(match) { continue }
+            guard hasTrustedQueueTime(match, labelled: display.text) else { continue }
+
             // Nexus nulls the whole team array for an undecided playoff
             // alliance, and individual entries for a no-show. The array also
             // arrives as `[Any]` — Kotlin's `List<String?>` loses its element
@@ -76,5 +84,23 @@ enum PitStatusHighlights {
         }
 
         return result
+    }
+
+    /// Whether a match's status is trustworthy enough to colour a pit by.
+    ///
+    /// Deliberately **not** a time check. `MatchStatusHelper.isFarFromQueuing`
+    /// owns that, for this and for the schedule cards, so the two surfaces can't
+    /// disagree about which teams count as queuing.
+    ///
+    /// What this drops is a "Queuing soon" match carrying no `queueTime` at all.
+    /// `isFarFromQueuing` falls back to `startTime` for those and waves them
+    /// through — but we genuinely can't say how far out they are, and assuming
+    /// "soon" is what produced the wall of purple in the first place.
+    private static func hasTrustedQueueTime(
+        _ match: Match,
+        labelled label: String
+    ) -> Bool {
+        guard label == "Queuing soon" else { return true }
+        return match.times.queueTime != nil
     }
 }

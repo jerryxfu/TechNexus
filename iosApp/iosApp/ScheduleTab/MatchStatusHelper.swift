@@ -89,6 +89,20 @@ enum MatchStatusHelper {
         return nil
     }
 
+    /// How far ahead of its queue time a match starts being worth reporting.
+    ///
+    /// Hoisted out of `MatchCardView`, which had this inline, because the pit map needs the identical horizon.
+    /// Without it "Queuing soon" is effectively the default for any match not yet playing. Keeping things consistent.
+    static let queuingHorizonMs: Int64 = 15 * 60 * 1000
+
+    /// True when a match is far enough out that its queuing status isn't yet worth showing.
+    // Falls back to start time when queue time is unknown.
+    static func isFarFromQueuing(_ match: Match) -> Bool {
+        let queueTimeMs = match.times.queueTime?.int64Value ?? match.times.startTime
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        return (queueTimeMs - nowMs) > queuingHorizonMs
+    }
+
     /// Canonical label, colour and icon for a status. Every iOS surface reads from here so they can't drift apart.
     static func display(
         for status: String,

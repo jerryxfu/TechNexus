@@ -39,6 +39,9 @@ struct PitMapCanvas: View {
     /// actually had.
     var fitsAspectRatio: Bool = true
 
+    /// Breathing room in points between the map's edge and the view's, at zoom 1.
+    var contentInset: CGFloat = 0
+
     /// Extra magnification on top of fit-to-view. `1` fits the whole map.
     var zoom: CGFloat = 1
 
@@ -51,7 +54,8 @@ struct PitMapCanvas: View {
 
     var body: some View {
         if fitsAspectRatio {
-            // Nexus maps vary widely in shape, so the container follows the data rather than a fixed ratio.
+            // Nexus maps vary widely in shape, so the container follows the data
+            // rather than a fixed ratio.
             canvas.aspectRatio(aspect, contentMode: .fit)
         } else {
             canvas
@@ -76,8 +80,11 @@ struct PitMapCanvas: View {
         let h = map.size.y
         guard w > 0, h > 0, viewSize.width > 0, viewSize.height > 0 else { return }
 
-        let fit = min(viewSize.width / w, viewSize.height / h)
-        let scale = fit * zoom
+        let scale = Self.fitScale(
+            mapSize: map.size,
+            viewSize: viewSize,
+            inset: contentInset
+        ) * zoom
 
         var canvas = context
         // Anchor the map's centre to the view's centre, so zoom magnifies about
@@ -89,7 +96,8 @@ struct PitMapCanvas: View {
         canvas.scaleBy(x: scale, y: scale)
         canvas.translateBy(x: -w / 2, y: -h / 2)
 
-        // Nexus units are screen-oriented: y down, angles clockwise, so no axis flip is needed here. See the note in `PitMap.kt`.
+        // Nexus units are screen-oriented — y down, angles clockwise — so no
+        // axis flip is needed here. See the note in `PitMap.kt`.
         let showsText = scale > textVisibilityThreshold
 
         drawWalls(in: canvas)
@@ -99,10 +107,25 @@ struct PitMapCanvas: View {
         drawLabels(in: canvas, showsText: showsText)
     }
 
+    /// The scale at which the whole map fits `viewSize`, minus `inset` on every
+    /// side.
+    ///
+    /// Static and shared because `PitMapScreen` needs the identical number for
+    /// its pan clamping. Keeping a second copy there is what let the two drift
+    /// apart last time — the screen clamped against a viewport the canvas had
+    /// never been given.
+    static func fitScale(mapSize: MapPoint, viewSize: CGSize, inset: CGFloat) -> CGFloat {
+        guard mapSize.x > 0, mapSize.y > 0 else { return 1 }
+        let usableW = max(1, viewSize.width - inset * 2)
+        let usableH = max(1, viewSize.height - inset * 2)
+        return min(usableW / mapSize.x, usableH / mapSize.y)
+    }
+
     /// Runs `body` in a context translated to the element's centre and rotated
     /// by its angle, handing back a rect centred on the origin.
     ///
-    /// `GraphicsContext` is a value type, so the copy isolates the transform and there is nothing to restore afterwards.
+    /// `GraphicsContext` is a value type, so the copy isolates the transform and
+    /// there is nothing to restore afterwards.
     private func inElement(
         _ geometry: MapGeometry,
         _ context: GraphicsContext,
@@ -151,8 +174,9 @@ struct PitMapCanvas: View {
                     area.label,
                     in: layer,
                     rect: rect,
-                    // Fixed sizes are in map units, not points, this is geometry inside a scaled context, not typography,
-                    // so Dynamic Type would fight the drawing rather than serve it.
+                    // Fixed sizes are in map units, not points — this is
+                    // geometry inside a scaled context, not typography, so
+                    // Dynamic Type would fight the drawing rather than serve it.
                     size: 24,
                     weight: .medium,
                     color: .secondary
@@ -174,10 +198,10 @@ struct PitMapCanvas: View {
                     cornerRadius: min(6, rect.width / 10)
                 )
 
-                // An unassigned pit stays visible but recessive. It's a landmark when you're counting down a row,
-                // so hiding it would make the map harder to walk, not cleaner.
-                let fill: Color =
-                    highlight?.opacity(0.28)
+                // An unassigned pit stays visible but recessive. It's a landmark
+                // when you're counting down a row, so hiding it would make the
+                // map harder to walk, not cleaner.
+                let fill: Color = highlight?.opacity(0.28)
                     ?? statusColor?.opacity(0.16)
                     ?? (isAssigned
                         ? Color(.secondarySystemGroupedBackground)
@@ -185,8 +209,9 @@ struct PitMapCanvas: View {
 
                 layer.fill(shape, with: .color(fill))
 
-                // Status outranks the personal highlight on the outline: it is the thing that changes,
-                // and a pit that is both keeps its fill colour so it stays findable either way.
+                // Status outranks the personal highlight on the outline: it is
+                // the thing that changes, and a pit that is both keeps its fill
+                // colour so it stays findable either way.
                 let outline = statusColor ?? highlight
                 layer.stroke(
                     shape,
@@ -196,7 +221,8 @@ struct PitMapCanvas: View {
 
                 guard showsText else { return }
 
-                // With a status there are two lines, so the number shifts up to make room rather than the pair drifting off centre.
+                // With a status there are two lines, so the number shifts up to
+                // make room rather than the pair drifting off centre.
                 drawText(
                     pit.team ?? pit.address,
                     in: layer,
@@ -298,8 +324,9 @@ struct PitMapCanvas: View {
         // works on the iOS 16 floor, unlike `Text.foregroundStyle`, which is 17+.
         resolved.shading = .color(color)
 
-        // Nexus's own renderer lets long area names spill; clipping to the element instead
-        // keeps a wide label from crossing into the pit next to it and reading as that pit's number.
+        // Nexus's own renderer lets long area names spill; clipping to the
+        // element instead keeps a wide label from crossing into the pit next to
+        // it and reading as that pit's number.
         var clipped = context
         clipped.clip(to: Path(rect))
         clipped.draw(resolved, at: point, anchor: .center)
