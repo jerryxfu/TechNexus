@@ -32,16 +32,16 @@ import net.jerryxf.technexus.shared.PitMapWire
  * else if result is PitMapResult.NotPublished { … }
  * ```
  */
-sealed class PitMapResult {
-    /** Nexus has a map for this event. */
-    data class Available(val map: PitMap) : PitMapResult()
+sealed class PitMapResult
 
-    /** The event exists but no pit map was drawn. Nexus answers 404. */
-    object NotPublished : PitMapResult()
+/** Nexus has a map for this event. */
+data class PitMapAvailable(val map: PitMap) : PitMapResult()
 
-    /** Network failure, bad response, or unparseable body. Worth retrying. */
-    object Failed : PitMapResult()
-}
+/** The event exists but no pit map was drawn. Nexus answers 204. */
+object PitMapNotPublished : PitMapResult()
+
+/** Network failure, bad response, or unparseable body. Worth retrying. */
+object PitMapFailed : PitMapResult()
 
 /**
  * Fetch and flatten the pit map.
@@ -54,15 +54,15 @@ suspend fun getPitMap(eventKey: String): PitMapResult {
         val response = client.get("$apiUrl/event/$eventKey/map")
         when (response.status) {
             HttpStatusCode.OK ->
-                PitMapResult.Available(response.body<PitMapWire>().toPitMap())
+                PitMapAvailable(response.body<PitMapWire>().toPitMap())
 
-            // 204, not 404. See the note on `notFoundStatus` in `Nexus.kt`.
-            HttpStatusCode.NoContent -> PitMapResult.NotPublished
-            else -> PitMapResult.Failed
+            // 204, not 404 — see the note on `notFoundStatus` in `Nexus.kt`.
+            HttpStatusCode.NoContent -> PitMapNotPublished
+            else -> PitMapFailed
         }
     } catch (e: Exception) {
         e.printStackTrace()
-        PitMapResult.Failed
+        PitMapFailed
     }
 }
 

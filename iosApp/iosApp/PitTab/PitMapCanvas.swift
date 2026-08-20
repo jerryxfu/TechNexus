@@ -16,8 +16,28 @@ import SwiftUI
 struct PitMapCanvas: View {
     let map: PitMap
 
-    /// Team number to colour, straight from `HighlightedTeamsStore`.
+    /// Team number to colour, straight from `HighlightedTeamsStore`. Drawn as
+    /// the pit's **fill**, because it answers "which one is mine".
     var highlights: [String: Color] = [:]
+
+    /// Team number to live match status, from `PitStatusHighlights`. Drawn as
+    /// the pit's **outline** plus a second line of text, because it answers
+    /// "what's happening".
+    ///
+    /// Kept on a separate channel from `highlights` rather than merged into one
+    /// dictionary so a pit can carry both at once — your team, on field, reads
+    /// as your colour ringed in green instead of forcing a choice between them.
+    var statuses: [String: TeamStatus] = [:]
+
+    /// Whether the view constrains itself to the map's own aspect ratio.
+    ///
+    /// True for the inline preview, which sits in a `ScrollView` and has to
+    /// declare a height. **False full screen**, where the canvas should take the
+    /// whole page and do its own fit internally — leaving it on there fits the
+    /// map twice, once into the aspect box and again inside `draw`, and the
+    /// screen's pan clamping then computes against a size the canvas never
+    /// actually had.
+    var fitsAspectRatio: Bool = true
 
     /// Extra magnification on top of fit-to-view. `1` fits the whole map.
     var zoom: CGFloat = 1
@@ -30,12 +50,18 @@ struct PitMapCanvas: View {
     private let textVisibilityThreshold: Double = 0.14
 
     var body: some View {
+        if fitsAspectRatio {
+            // Nexus maps vary widely in shape, so the container follows the data rather than a fixed ratio.
+            canvas.aspectRatio(aspect, contentMode: .fit)
+        } else {
+            canvas
+        }
+    }
+
+    private var canvas: some View {
         Canvas { context, size in
             draw(into: context, viewSize: size)
         }
-        // Nexus maps are portrait-ish and vary widely, so the container follows
-        // the data rather than a fixed shape.
-        .aspectRatio(aspect, contentMode: .fit)
     }
 
     private var aspect: CGFloat {
@@ -63,8 +89,7 @@ struct PitMapCanvas: View {
         canvas.scaleBy(x: scale, y: scale)
         canvas.translateBy(x: -w / 2, y: -h / 2)
 
-        // Nexus units are screen-oriented — y down, angles clockwise — so no
-        // axis flip is needed here. See the note in `PitMap.kt`.
+        // Nexus units are screen-oriented: y down, angles clockwise, so no axis flip is needed here. See the note in `PitMap.kt`.
         let showsText = scale > textVisibilityThreshold
 
         drawWalls(in: canvas)
@@ -77,8 +102,7 @@ struct PitMapCanvas: View {
     /// Runs `body` in a context translated to the element's centre and rotated
     /// by its angle, handing back a rect centred on the origin.
     ///
-    /// `GraphicsContext` is a value type, so the copy isolates the transform and
-    /// there is nothing to restore afterwards.
+    /// `GraphicsContext` is a value type, so the copy isolates the transform and there is nothing to restore afterwards.
     private func inElement(
         _ geometry: MapGeometry,
         _ context: GraphicsContext,
@@ -127,9 +151,8 @@ struct PitMapCanvas: View {
                     area.label,
                     in: layer,
                     rect: rect,
-                    // Fixed sizes are in map units, not points — this is
-                    // geometry inside a scaled context, not typography, so
-                    // Dynamic Type would fight the drawing rather than serve it.
+                    // Fixed sizes are in map units, not points, this is geometry inside a scaled context, not typography,
+                    // so Dynamic Type would fight the drawing rather than serve it.
                     size: 24,
                     weight: .medium,
                     color: .secondary
@@ -141,6 +164,8 @@ struct PitMapCanvas: View {
     private func drawPits(in context: GraphicsContext, showsText: Bool) {
         for pit in map.pits {
             let highlight = pit.team.flatMap { highlights[$0] }
+            let status = pit.team.flatMap { statuses[$0] }
+            let statusColor = status?.color
             let isAssigned = pit.team != nil
 
             inElement(pit.geometry, context) { layer, rect in
@@ -149,31 +174,50 @@ struct PitMapCanvas: View {
                     cornerRadius: min(6, rect.width / 10)
                 )
 
-                // An unassigned pit stays visible but recessive. It's a landmark
-                // when you're counting down a row, so hiding it would make the
-                // map harder to walk, not cleaner.
+                // An unassigned pit stays visible but recessive. It's a landmark when you're counting down a row,
+                // so hiding it would make the map harder to walk, not cleaner.
                 let fill: Color =
                     highlight?.opacity(0.28)
+                    ?? statusColor?.opacity(0.16)
                     ?? (isAssigned
                         ? Color(.secondarySystemGroupedBackground)
                         : Color(.systemGray6))
 
                 layer.fill(shape, with: .color(fill))
+
+                // Status outranks the personal highlight on the outline: it is the thing that changes,
+                // and a pit that is both keeps its fill colour so it stays findable either way.
+                let outline = statusColor ?? highlight
                 layer.stroke(
                     shape,
-                    with: .color(highlight ?? Color(.systemGray3)),
-                    lineWidth: highlight == nil ? 2 : 6
+                    with: .color(outline ?? Color(.systemGray3)),
+                    lineWidth: outline == nil ? 2 : 6
                 )
 
                 guard showsText else { return }
+
+                // With a status there are two lines, so the number shifts up to make room rather than the pair drifting off centre.
                 drawText(
                     pit.team ?? pit.address,
                     in: layer,
                     rect: rect,
+                    at: CGPoint(x: 0, y: status == nil ? 0 : -rect.height * 0.11),
                     size: 30,
-                    weight: highlight == nil ? .semibold : .bold,
+                    weight: (highlight ?? statusColor) == nil ? .semibold : .bold,
                     color: isAssigned ? .primary : Color(.tertiaryLabel)
                 )
+
+                if let status {
+                    drawText(
+                        status.label,
+                        in: layer,
+                        rect: rect,
+                        at: CGPoint(x: 0, y: rect.height * 0.19),
+                        size: 17,
+                        weight: .medium,
+                        color: status.color
+                    )
+                }
             }
         }
     }
@@ -242,6 +286,7 @@ struct PitMapCanvas: View {
         _ string: String,
         in context: GraphicsContext,
         rect: CGRect,
+        at point: CGPoint = .zero,
         size: CGFloat,
         weight: Font.Weight,
         color: Color
@@ -253,19 +298,16 @@ struct PitMapCanvas: View {
         // works on the iOS 16 floor, unlike `Text.foregroundStyle`, which is 17+.
         resolved.shading = .color(color)
 
-        // Nexus's own renderer lets long area names spill; clipping to the
-        // element instead keeps a wide label from crossing into the pit next to
-        // it and reading as that pit's number.
+        // Nexus's own renderer lets long area names spill; clipping to the element instead
+        // keeps a wide label from crossing into the pit next to it and reading as that pit's number.
         var clipped = context
         clipped.clip(to: Path(rect))
-        clipped.draw(resolved, at: .zero, anchor: .center)
+        clipped.draw(resolved, at: point, anchor: .center)
     }
 
     /// Nexus constrains arrow colour to four values, so this is total.
-    ///
-    /// Compared with `==` rather than `switch` because Kotlin enums surface
-    /// differently through SKIE than through bare Kotlin/Native, and equality
-    /// behaves the same either way.
+    /// Compared with `==` rather than `switch` because Kotlin enums surface differently through SKIE
+    /// than through bare Kotlin/Native, and equality behaves the same either way.
     private func color(for arrowColor: ArrowColor) -> Color {
         if arrowColor == ArrowColor.red { return .red }
         if arrowColor == ArrowColor.purple { return .purple }

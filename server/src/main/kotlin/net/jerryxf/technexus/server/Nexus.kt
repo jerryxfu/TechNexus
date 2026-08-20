@@ -3,7 +3,9 @@ package net.jerryxf.technexus.server
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.http.content.CachingOptions
 import io.ktor.server.application.*
+import io.ktor.server.plugins.cachingheaders.caching
 import io.ktor.server.response.*
 
 private const val NEXUS_API = "https://frc.nexus/api/v1"
@@ -60,8 +62,22 @@ suspend fun nexusBody(
         HttpStatusCode.NotFound -> {
             call.application.log.info("frc.nexus 404 for /{}: {}", path, body)
             // 204 cannot carry a body, so the upstream message goes to the log only.
-            if (notFoundStatus == HttpStatusCode.NoContent) call.respond(HttpStatusCode.NoContent)
-            else call.respond(notFoundStatus, body)
+                        if (notFoundStatus == HttpStatusCode.NoContent) {
+                // A negative answer gets a fraction of the positive one's TTL.
+                // "No pit map" is the state most likely to flip while someone is
+                // looking at it — a volunteer draws one the morning of the event
+                // — and 15 minutes of edge cache plus 5 on device would hide it.
+                call.caching = CachingOptions(
+                    CacheControl.MaxAge(
+                        maxAgeSeconds = 30,
+                        proxyMaxAgeSeconds = 30,
+                        visibility = CacheControl.Visibility.Public
+                    )
+                )
+                call.respond(HttpStatusCode.NoContent)
+            } else {
+                call.respond(notFoundStatus, body)
+            }
         }
 
         HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden -> {

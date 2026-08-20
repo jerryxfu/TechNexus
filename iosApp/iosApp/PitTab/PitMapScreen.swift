@@ -3,13 +3,12 @@ import SwiftUI
 
 /// The pit map, full screen, with pan and zoom.
 ///
-/// This exists as a separate screen rather than an interactive map inline in the
-/// Pit tab because pan and scroll are the same gesture. A draggable map inside
-/// the tab's `ScrollView` would steal roughly half of every drag from the list
-/// and feel broken rather than unfinished.
+/// This exists as a separate screen rather than an interactive map inline in the Pit tab because pan and scroll are the same gesture.
+/// A draggable map inside the tab's `ScrollView` would steal roughly half of every drag from the list and feel broken rather than unfinished.
 struct PitMapScreen: View {
     let map: PitMap
     let highlights: [String: Color]
+    var statuses: [String: TeamStatus] = [:]
 
     @Environment(\.dismiss) private var dismiss
 
@@ -27,17 +26,19 @@ struct PitMapScreen: View {
                 PitMapCanvas(
                     map: map,
                     highlights: highlights,
+                    statuses: statuses,
+                    // The canvas fits the map itself. Letting the aspect-ratio modifier do it too would box the drawing
+                    // inside this frame and leave the pan maths below computing against a size the canvas never received.
+                    fitsAspectRatio: false,
                     zoom: zoom,
                     pan: pan
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .contentShape(Rectangle())
                 .gesture(
-                    // `MagnificationGesture` is deprecated in iOS 17 in favour of
-                    // `MagnifyGesture`, which is 17+. Branching on availability
-                    // would split this view's identity and reset the gesture
-                    // mid-pinch, so the deprecated spelling stays until the
-                    // deployment floor moves.
+                    // `MagnificationGesture` is deprecated in iOS 17 in favour of `MagnifyGesture`, which is 17+.
+                    // Branching on availability would split this view's identity and reset the gesture mid-pinch,
+                    // so the deprecated spelling stays until the deployment floor moves.
                     MagnificationGesture()
                         .onChanged { value in
                             zoom = clampZoom(committedZoom * value)
@@ -65,12 +66,10 @@ struct PitMapScreen: View {
                     withAnimation(.default) { reset() }
                 }
                 .task {
-                    // Opening on your own pit is the whole reason someone taps
-                    // through to this screen at an event.
+                    // Opening on your own pit is the whole reason someone taps through to this screen at an event.
                     centreOnFirstHighlight(in: proxy.size)
                 }
             }
-            .padding(8)
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Pit map")
             .navigationBarTitleDisplayMode(.inline)

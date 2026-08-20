@@ -3,15 +3,11 @@ import SwiftUI
 
 /// Where the pits are, at whatever fidelity this event actually publishes.
 ///
-/// Nexus exposes three independent things, and events have wildly different
-/// amounts of them, so this degrades down a ladder rather than showing one
-/// empty state:
+/// Nexus exposes three independent things, and events may not offer all of them, so this degrades down a ladder rather:
 ///
-/// 1. **A drawn map** — geometry, and the richest answer.
-/// 2. **Pit addresses** — team to `A1`, with no picture. A separate endpoint
-///    that survives when no map was drawn.
-/// 3. **The team list** — no locations at all, but confirmation the event has a
-///    roster and that yours is on it.
+/// 1. **A drawn map**: full geometry.
+/// 2. **Pit addresses**: team# -> `A1`, with no picture.
+/// 3. **The team list**: no locations at all, but all the teams that are in the event.
 ///
 /// Only the last rung being empty is a real "nothing here" state.
 struct PitLocationSection: View {
@@ -20,6 +16,14 @@ struct PitLocationSection: View {
     @State private var state: LoadState = .loading
     @State private var showingFullScreen = false
     @State private var highlights: [String: Color] = [:]
+    @State private var statuses: [String: TeamStatus] = [:]
+
+    /// Slower than the Schedule tab's 15s.
+    ///
+    /// Only one tab is on screen at a time, so this never runs alongside that poll,
+    /// but it is still a second caller against the same Cloudflare budget `CLAUDE.md` flags as tight at two teams.
+    /// Queuing statuses turn over on the order of minutes, so half the rate costs nothing you'd notice on a map.
+    private let statusRefreshSeconds: UInt64 = 30
 
     enum LoadState {
         case loading
@@ -61,6 +65,13 @@ struct PitLocationSection: View {
         }
         .task(id: eventKey) {
             await load()
+
+            // Cancelled when the tab goes away, so this stops the moment you switch tabs rather than polling behind the Schedule tab's own.
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: statusRefreshSeconds * 1_000_000_000)
+                if Task.isCancelled { break }
+                await refreshStatuses()
+            }
         }
     }
 
@@ -87,7 +98,7 @@ struct PitLocationSection: View {
             Button {
                 showingFullScreen = true
             } label: {
-                PitMapCanvas(map: map, highlights: highlights)
+                PitMapCanvas(map: map, highlights: highlights, statuses: statuses)
                     .padding(10)
                     .background {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -103,18 +114,35 @@ struct PitLocationSection: View {
             }
         }
         .fullScreenCover(isPresented: $showingFullScreen) {
-            PitMapScreen(map: map, highlights: highlights)
+            PitMapScreen(map: map, highlights: highlights, statuses: statuses)
         }
     }
 
     private func addressList(_ addresses: [PitAddress]) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(addresses.enumerated()), id: \.element.team) { index, entry in
-                HStack {
-                    Text(entry.team)
-                        .font(.body)
-                        .fontWeight(highlights[entry.team] != nil ? .semibold : .regular)
-                        .foregroundStyle(highlights[entry.team] ?? .primary)
+                HStack(spacing: 8) {
+                    // A dot rather than recolouring the row: the team's own highlight colour already owns the text,
+                    // and two colours on one string reads as a rendering bug.
+                    Circle()
+                        .fill(statuses[entry.team]?.color ?? .clear)
+                        .frame(width: 8, height: 8)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(entry.team)
+                            .font(.body)
+                            .fontWeight(
+                                highlights[entry.team] != nil || statuses[entry.team] != nil
+                                    ? .semibold : .regular
+                            )
+                            .foregroundStyle(highlights[entry.team] ?? .primary)
+
+                        if let status = statuses[entry.team] {
+                            Text(status.label)
+                                .font(.caption2)
+                                .foregroundStyle(status.color)
+                        }
+                    }
                     Spacer()
                     Text(entry.address)
                         .font(.body)
@@ -136,26 +164,50 @@ struct PitLocationSection: View {
     }
 
     private func teamList(_ teams: [String]) -> some View {
-        // No addresses to pair these with, so a flowing grid reads faster than
-        // a one-per-row list of sixty short numbers.
+        // No addresses to pair these with, so a flowing grid reads faster than a one-per-row list of sixty short numbers.
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 64), spacing: 8)],
+            // Wider than it needs to be for a bare team number, so a status label like "Queuing soon" fits underneath without shrinking.
+            columns: [GridItem(.adaptive(minimum: 88), spacing: 8)],
             spacing: 8
         ) {
             ForEach(teams, id: \.self) { team in
-                Text(team)
-                    .font(.subheadline)
-                    .fontWeight(highlights[team] != nil ? .semibold : .regular)
-                    .foregroundStyle(highlights[team] ?? .primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(
-                                highlights[team]?.opacity(0.18)
-                                    ?? Color(.secondarySystemGroupedBackground)
-                            )
+                let highlight = highlights[team]
+                let status = statuses[team]
+
+                VStack(spacing: 1) {
+                    Text(team)
+                        .font(.subheadline)
+                        .fontWeight(
+                            highlight != nil || status != nil ? .semibold : .regular
+                        )
+                        .foregroundStyle(highlight ?? .primary)
+
+                    if let status {
+                        Text(status.label)
+                            .font(.caption2)
+                            .foregroundStyle(status.color)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background {
+                    // Fill for "mine", outline for "what's happening" the same two channels the map uses,
+                    // so the two surfaces teach the same thing.
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(
+                            highlight?.opacity(0.18)
+                                ?? status?.color.opacity(0.12)
+                                ?? Color(.secondarySystemGroupedBackground)
+                        )
+                        .overlay {
+                            if let status {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .strokeBorder(status.color, lineWidth: 2)
+                            }
+                        }
+                }
             }
         }
     }
@@ -172,9 +224,8 @@ struct PitLocationSection: View {
             }
     }
 
-    /// "3990 is in pit C12" — the one fact most people open this tab for, spelled
-    /// out so it doesn't depend on finding a highlighted rectangle in a preview
-    /// that may be thumbnail-sized.
+    /// "3990 is in pit C12", the one fact most people open this tab for, spelled out so it doesn't depend on finding
+    /// a highlighted rectangle in a preview that may be thumbnail-sized.
     private func myPitSummary(in map: PitMap) -> String? {
         let located = highlights.keys
             .compactMap { team -> String? in
@@ -192,24 +243,29 @@ struct PitLocationSection: View {
         state = .loading
         highlights = Self.resolveHighlights()
 
-        // Every one of these swallows its own errors and returns a value, so the
-        // `catch` below is dead code — it exists because SKIE types suspend
-        // functions as `throws`. Same shape as `getEventData`'s callers.
+        // Paint from the cache first so the map isn't colourless for a round trip.
+        // `loadCachedSchedule` deliberately doesn't check which event it holds, so that check belongs here.
+        if let cached = loadCachedSchedule(), cached.event.eventKey == eventKey {
+            statuses = PitStatusHighlights.derive(from: cached.event)
+        }
+        await refreshStatuses()
+
+        // Every one of these swallows its own errors and returns a value, so the `catch` below is dead code but
+        // it exists because SKIE types suspend functions as `throws`. Same shape as `getEventData`'s callers.
         do {
             let result = try await getPitMap(eventKey: eventKey)
 
-                if let available = result as? PitMapResult.Available {
+            if let available = result as? PitMapAvailable {
                 state = .map(available.map)
                 return
             }
 
-            if result is PitMapResult.Failed {
+            if result is PitMapFailed {
                 state = .failed
                 return
             }
 
-            // `NotPublished` — the event is fine, it just has no drawn map.
-            // Drop to the next rung rather than reporting an error.
+            // `NotPublished` the event is fine, it just has no drawn map. Drop to the next rung rather than reporting an error.
             let addresses = try await getPitAddresses(eventKey: eventKey)
             if !addresses.isEmpty {
                 state = .addresses(addresses)
@@ -223,8 +279,18 @@ struct PitLocationSection: View {
         }
     }
 
-    /// The schedule tab's highlighted teams, plus the team number from Settings
-    /// if it isn't already one of them.
+    /// Re-derives status colours from a fresh schedule.
+    ///
+    /// Deliberately does not touch `state`. A schedule fetch failing says nothing about whether the pit map loaded,
+    // and blanking a working map because the status colours went stale would be the worst of both.
+    private func refreshStatuses() async {
+        guard let event = try? await getEventData(eventKey: eventKey) else { return }
+        withAnimation(.default) {
+            statuses = PitStatusHighlights.derive(from: event)
+        }
+    }
+
+    /// The schedule tab's highlighted teams, plus the team number from Settings if it isn't already one of them.
     ///
     /// Reusing `HighlightedTeamsStore` means the colours match between tabs and
     /// the map answers "where are my alliance partners", not just "where am I".
