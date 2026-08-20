@@ -32,7 +32,16 @@ The clients never call either directly; both go through the server, which holds 
 
 ## Notifications
 
-Not built yet. When they are, the transport is **APNs directly on iOS, FCM on Android**.
+Not built yet. When they are, the transport is **APNs directly on iOS, FCM on Android**, triggered by **Nexus webhooks**
+rather than by polling.
+
+Nexus POSTs the full `EventStatus` body — the same shape as `GET /event/{key}` — whenever a match status changes, a
+break time changes, a team joins a playoff alliance, or an announcement or parts request is posted or removed. Webhook
+URLs are registered at [frc.nexus/api](https://frc.nexus/api) and requests carry a `Nexus-Token` header for
+verification. Because the payload is a full snapshot rather than a delta, a dropped delivery self-heals on the next one;
+because deliveries are not retried and consistently failing hooks are disabled automatically, the receiver returns 200
+as soon as the token validates and does its work afterwards. Ordering is not guaranteed, so state writes are gated on
+`dataAsOfTime`.
 
 Routing iOS through FCM would buy nothing and cost something. FCM's iOS transport *is* APNs underneath, so it needs the
 same `.p8` auth key either way and avoids none of the Apple Developer account setup. It does support Live Activities
@@ -108,16 +117,25 @@ created on frc.nexus and are always named `demo` followed by a number.
 
 ## Server routes
 
-| Route                                | Source                                     | Cache |
-|--------------------------------------|--------------------------------------------|-------|
-| `GET /events`                        | frc.nexus, all current and upcoming events | 5 min |
-| `GET /event/{event}`                 | frc.nexus, live event and match status     | 15 s  |
-| `GET /event/{event}/match/{matchId}` | The Blue Alliance, reduced to a score      | 1 h   |
-| `/batteries/*`                       | Postgres                                   | none  |
-| `/cycles/*`                          | Postgres                                   | none  |
+| Route                                | Source                                     | Cache  |
+|--------------------------------------|--------------------------------------------|--------|
+| `GET /events`                        | frc.nexus, all current and upcoming events | 5 min  |
+| `GET /event/{event}`                 | frc.nexus, live event and match status     | 15 s   |
+| `GET /event/{event}/map`             | frc.nexus, pit map geometry                | 15 min |
+| `GET /event/{event}/pits`            | frc.nexus, team number to pit address      | 15 min |
+| `GET /event/{event}/teams`           | frc.nexus, teams attending                 | 15 min |
+| `GET /event/{event}/match/{matchId}` | The Blue Alliance, reduced to a score      | 1 h    |
+| `/batteries/*`                       | Postgres                                   | none   |
+| `/cycles/*`                          | Postgres                                   | none   |
 
 `/event/{event}` injects playoff alliance seeds into each match, joined from Nexus's separate alliances endpoint.
 Clients never see the raw alliance array.
+
+The three pit routes cache far longer than the schedule because none of them is polled and none is covered by the Nexus
+webhook — a pit map is drawn before an event and edited rarely, so the TTL is the whole freshness strategy. They form a
+fallback ladder in the client: map, then addresses, then the team list. `/map` answers **204** when an event has no map
+drawn, which is the common case; 404 is reserved for a route or event that genuinely doesn't exist, and a 204 caches for
+30 seconds rather than 15 minutes so a map drawn on the morning of an event shows up promptly.
 
 ## Deployment
 

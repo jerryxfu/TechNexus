@@ -46,20 +46,21 @@ merge to `main`.
 
 It cannot be submitted yet. One blocker is outside the code; the rest is a list of finite tasks.
 
-| Area                   | State                                         |
-|------------------------|-----------------------------------------------|
-| Schedule tab           | Pull-to-refresh, offline cache, 15s poll      |
-| Live Activity          | Lock Screen + Island, 3 / 2 team cap          |
-| Pit tab                | Robot cheat sheet only                        |
-| Settings               | Auto-save, reset to defaults, picker, About   |
-| Deployment target      | Pinned to 16.2, six configs, builds clean     |
-| Stats / TechBotics tab | Commented out in `ContentView`                |
-| Server                 | Deployed on Cloud Run at nexus.jerryxf.net    |
-| `/batteries`           | Verified against Neon, returns []             |
-| Playoff alliances      | Server joins Nexus alliances, renders A3 / A? |
-| Offline                | Disk cache, backoff, freshness chip in header |
-| Notifications          | Not started                                   |
-| Device builds          | Blocked, see below                            |
+| Area                   | State                                           |
+|------------------------|-------------------------------------------------|
+| Schedule tab           | Pull-to-refresh, offline cache, 15s poll        |
+| Live Activity          | Lock Screen + Island, 3 / 2 team cap            |
+| Pit tab                | Robot card, pit map, address / team fallbacks   |
+| Pit map                | Renders demo1815; untested at a real event      |
+| Settings               | Auto-save, reset to defaults, picker, About     |
+| Deployment target      | Pinned to 16.2, six configs, builds clean       |
+| Stats / TechBotics tab | Commented out in `ContentView`                  |
+| Server                 | Deployed on Cloud Run at nexus.jerryxf.net      |
+| `/batteries`           | Verified against Neon, returns []               |
+| Playoff alliances      | Server joins Nexus alliances, renders A3 / A?   |
+| Offline                | Disk cache, backoff, freshness chip in header   |
+| Notifications          | Not started — but Nexus has webhooks, see below |
+| Device builds          | Blocked, see below                              |
 
 ---
 
@@ -173,6 +174,64 @@ now checks this first, falling back to the buffer heuristic only for events that
 Status is fully derivable from which keys exist. For the notification poller the diff is **"which key appeared since the
 last poll"** — not string comparison against `status`. The spec warns that **any state transition is possible and some
 events skip `Now queuing` entirely**, so the poller must not assume the ladder is climbed one rung at a time.
+
+### Webhooks — there is no need to poll Nexus at all
+
+Found 19 Aug, in the `webhooks` block of the same OpenAPI document. These are requests Nexus makes **to us**; ReDoc
+renders them beside the real paths, which is why they read as endpoints we could call. Every actual path is a `GET`.
+
+- **Live event status** — Nexus POSTs the full `EventStatus` body (identical to `GET /event/{key}`) whenever a match
+  status changes, a break time changes, a team is added to a playoff alliance, or an announcement or parts request is
+  posted or removed.
+- **Match status** — registered per team number, POSTs `{eventKey, dataAsOfTime, match}`. Not useful here: registration
+  is manual and per-team, which doesn't scale to a public app. The event-level hook carries everything; filter our side.
+
+Registration is a form at `frc.nexus/api`. Requests carry a `Nexus-Token` header for verification. **Whether the
+event-level hook is global or per-event is still unknown** — that decides whether setup is one-time or a per-event
+chore, and it is only visible in the form.
+
+This removes the poller entirely, and with it the CPU-allocation decision below. Consequences worth holding onto:
+
+- **The payload is a full snapshot, not a delta.** A dropped webhook self-heals on the next one. That makes the whole
+  reliability question much less sharp than it first looks.
+- **`dataAsOfTime` must gate writes.** The spec warns these fire repeatedly in quick succession, so state writes need to
+  be conditional on the incoming timestamp being newer. That replaces "diff since last poll" — `match_state` in Postgres
+  is still needed, for ordering as well as flood control.
+- **Non-200 responses are not retried, and consistently failing hooks are auto-disabled.** Silent total failure. Return
+  200 the instant the token validates and do the work after, so the response never waits on Postgres or APNs.
+- **Cold starts are the risk, not CPU.** Either a Cloud Scheduler keepalive (request-billed, so a warm idle instance is
+  ~free — about 4,300 vCPU-s/month against a 180,000 free allowance, versus ~2.6M for `--min-instances=1`), or let the
+  Cloudflare Worker take the POST, return 200, and forward via `ctx.waitUntil` so Nexus never sees Cloud Run at all.
+- **Map edits do not fire a webhook.** Cache TTL is the entire freshness strategy for pit data.
+
+### Pit endpoints
+
+Three more `GET`s the app now uses:
+
+| Path                 | Returns                    | 404 means                                  |
+|----------------------|----------------------------|--------------------------------------------|
+| `/event/{key}/map`   | Vector pit-map geometry    | event missing **or no map drawn** — common |
+| `/event/{key}/pits`  | Team number → pit address  | event missing only; `{}` when nothing set  |
+| `/event/{key}/teams` | Flat array of team numbers | event missing only                         |
+
+The three form a fallback ladder: map → addresses → team list. Independent of each other — an event can have addresses
+with no drawn map, which is the common case.
+
+**Map coordinate system.** Nexus documents only that 10 units ≈ 1 foot. The rest was verified against the reference
+image Nexus publishes with its API examples:
+
+- Origin **top-left, y increases downward**. Pit `A1` at `y = 1020` in a 1300-tall map renders at the *bottom*.
+- `angle` in **degrees, clockwise**. An arrow at `-90` renders pointing left.
+- `position` is the element **centre**, not its origin.
+
+Both match screen conventions, so `Canvas` needs no axis flip and no angle negation. Convenient but not contractual — if
+a map ever renders mirrored, this is the first assumption to re-check.
+
+Elements share one shape (`position`, `size`, `angle`) and differ only in extras: pits carry a nullable `team`, areas
+and labels a `label`, arrows a `type` (`single` / `double`) and a `color` constrained to red / blue / purple / gray.
+`areas`, `labels`, `arrows` and `walls` are each nullable at the top level; `demo1815` returns `areas: null` outright.
+Nexus returns every collection as an object keyed by id, so `PitMap.kt` flattens them into lists the way `NexusEvent`
+becomes `EventSummary` — Kotlin maps bridge badly to Swift.
 
 ### Alliances
 
@@ -477,6 +536,18 @@ GET /event/demo1815    200, includes nowQueuing and actual* times
 GET /event/2026daly    404 "2026daly does not exist."
 ```
 
+Against the deployed server, 19 Aug:
+
+```
+GET /event/demo1815/map      200, 1800x1200, 144 pits, 1 label, 1 arrow, 1 wall, areas: null
+GET /event/demo1815/pits     {}      event exists, no addresses assigned
+GET /event/2026azscor/map    204     no pit map drawn
+```
+
+`demo1815` also confirmed the renderer against real geometry: unassigned pits, a null `areas` block, and a landscape map
+on a portrait screen. Nine days from Summer Scorcher, `2026azscor` publishes none of the three, which is the
+`.empty` rung and a correct state rather than a bug.
+
 Startup logs `Database connected, schema verified`.
 
 Against production at `nexus.jerryxf.net`, 17 Aug:
@@ -570,11 +641,10 @@ Ordered by what blocks what. Struck items are done.
 
 The deployed shape is under *Recent work*. Two things were left open on purpose.
 
-**CPU allocation is request-based**, which is correct today and wrong the moment the notification poller exists. Cloud
-Run only allocates CPU during request handling, so a `while(true) { poll(); delay() }` loop inside a request-billed
-service silently stops a few minutes after the last request — works perfectly in testing, dies overnight. Either
-`--min-instances=1 --no-cpu-throttling`, which switches to instance-based billing, or scale to zero and drive the poll
-from Cloud Scheduler on its one-minute floor, which is fine for queue status. Decide before writing the poller.
+~~**CPU allocation is request-based**, which is wrong the moment the notification poller exists.~~ **Resolved 19 Aug —
+no poller is needed.** Nexus pushes state changes over webhooks, so the server stays request-in/response-out, which is
+exactly what request billing is good for and scales to zero out of season. See *frc.nexus → Webhooks*. The remaining
+question is cold-start latency on the first webhook after idle, which is a much cheaper problem than always-on CPU.
 
 ~~**Artifact Registry has no cleanup policy.**~~ Done. A cleanup policy is in place; CI was otherwise accumulating
 roughly 250 MB per merge to `main`.
@@ -585,8 +655,30 @@ that hostname.
 
 ### Notifications
 
-Nothing built. **Transport: APNs directly on iOS, FCM on Android.** FCM's iOS path *is* APNs underneath and needs the
-same `.p8` key, so neither route avoids the Apple blocker — the auth key comes from the developer portal either way.
+Nothing built. **Transport: APNs directly on iOS, FCM on Android.** The *trigger* is settled as of 19 Aug: Nexus
+webhooks, not a poller — see *frc.nexus → Webhooks* for the payload shape, the ordering rule and the auto-disable risk.
+Almost none of this work is blocked on Apple. Schema, receiver, `dataAsOfTime`-guarded state writes, diffing and fan-out
+are all buildable and testable now with the send stubbed to a log; only the `.p8` transport is gated.
+
+Gaps not covered elsewhere:
+
+- **APNs sandbox vs production.** Direct APNs means picking the host, and the token decides which is valid — development
+  builds get sandbox tokens, TestFlight and App Store get production. Store the environment alongside the token, or
+  handle `BadDeviceToken`. One of the few real costs of dropping FCM.
+- **Two writers to the Live Activity.** The app calls `activity.update()` on its 15s poll today. Once the server pushes,
+  they fight. Server should be sole author from the moment a token registers.
+- **End of life.** `activityStateUpdates` → `.ended` / `.dismissed` → delete the token server-side, rather than pushing
+  into dead tokens until APNs 410s.
+- **`pushToStartToken` is 17.2.** At the 16.2 floor the server cannot *start* an activity — someone must open the app at
+  the venue. Probably the strongest argument that will ever exist for raising the floor.
+- **Skipped rungs.** Fire only the terminal state reached, never the ladder inferred; never fire on a backwards
+  transition, since Nexus revises.
+- **Time-sensitive interruption level.** Exactly the use case — noisy venue, phone in a pocket. Check whether the
+  entitlement needs requesting.
+- **The Worker request budget does not improve.** Push moves Live Activity updates off the client, but the schedule tab
+  still polls at 15s, so the 77k/day figure stands and two teams still don't fit. FCM's iOS path *is* APNs underneath
+  and needs the same `.p8` key, so neither route avoids the Apple blocker — the auth key comes from the developer portal
+  either way.
 
 **Correction, 17 Aug:** the old reason given here — that FCM lags Apple's Live Activity payload format — stopped being
 true in late 2024. FCM supports Live Activities via `apns.live_activity_token`, and `firebase-admin-java` has
@@ -880,6 +972,41 @@ pool, so every `/batteries` call is a fresh TCP+TLS handshake. Against a direct 
 connection cap; the pooler absorbs it. A real pool is the eventual answer, but Hikari behaves badly under Cloud Run's
 request-scoped CPU, where housekeeper threads freeze between requests. Leave it until the poller forces the issue.
 
+**A 404 you relay and a 404 Ktor invents look identical to the client.** `/event/{key}/map` legitimately 404s when an
+event has no pit map, so the client treated any 404 as "no map published" — and then said exactly that while the real
+cause was that the route hadn't been deployed yet. The tell on the wire is the body: a relayed Nexus 404 carries a
+message, Ktor's route-miss carries zero bytes. Fixed by answering **204** for "no map", leaving 404 to mean what it
+always meant. Same shape as the `2026daly` mistake: two different failures that looked the same.
+
+**A negative answer needs a shorter TTL than a positive one.** The 204 above inherited the map route's `max-age=300,
+s-maxage=900` and hid a pit map for the whole window after a volunteer drew one. It now gets 30s. "Nothing here yet" is
+by definition the state most likely to change while someone is looking at it.
+
+**`withAnimation` does not animate anything a `Canvas` draws.** SwiftUI interpolates animatable values in the *view
+tree*; a value read inside a `Canvas` closure isn't one — the closure just re-runs once at the final value. Wrapping a
+pan assignment in `withAnimation` produced an instant snap that looked like a broken gesture. Fix: keep the value fed to
+the canvas clamped, and put the animated part on a real modifier (`.offset`) alongside it.
+
+**Kotlin `List<String?>` arrives in Swift as `[Any]`.** The nullable element type doesn't survive the ObjC bridge, so
+`match.redTeams` needs `(entry as? String)` rather than optional-pattern unwrapping. `MatchCardView` and
+`ScheduleLiveActivityManager` already did this; anything new reading teams must too.
+
+**`Color.tertiary` does not exist.** `.primary` and `.secondary` are static members on `Color`; `.tertiary` is only a
+`HierarchicalShapeStyle`, so it works in `.foregroundStyle(.tertiary)` and fails wherever a `Color` is required. Use
+`Color(.tertiaryLabel)` there.
+
+**Nested Kotlin classes have two Swift spellings.** A nested `sealed class` subclass exports as `OuterInner` with an
+`NS_SWIFT_NAME(Outer.Inner)` alias, and which one Swift accepts depends on how SKIE is handling sealed classes. Declare
+them top-level (`PitMapAvailable`, not `PitMapResult.Available`) and there is only one spelling.
+
+**Aspect-fitting twice is invisible until you try to pan.** `PitMapCanvas` fitted the map to its own aspect ratio *and*
+inside `draw`, so the full-screen viewer's pan clamping was computing against a viewport the canvas never received. The
+canvas now takes a `fitsAspectRatio` flag and exposes `fitScale` statically so both agree by construction.
+
+**"Queuing soon" is Nexus's default, not a signal.** Measured on `demo1815` it spans 0 to 87 minutes out and covered 72
+of 144 pits. `MatchStatusHelper.queuingHorizonMs` is the single horizon both the schedule badges and the pit map apply —
+it was 10 minutes in `MatchCardView` while the comment above it said 30, so nobody had looked at that number in a while.
+
 ---
 
 ## File map
@@ -914,9 +1041,13 @@ iosApp/iosApp/
     Components/TeamPill.swift                   team chip
     Components/TimingCarouselView.swift         estimated times
   PitTab/
-    PitTabView.swift                            robot info card
+    PitTabView.swift                            compact robot row + pit section
     RobotCheatSheet.swift                       model
     RobotCheatSheetView.swift                   sheet, unit toggles
+    PitLocationSection.swift                    NEW — map / addresses / teams ladder
+    PitMapCanvas.swift                          NEW — Canvas renderer, fitScale
+    PitMapScreen.swift                          NEW — full screen, pan/zoom, rubber band
+    PitStatusHighlights.swift                   NEW — TeamStatus, per-team live status
   SettingsTab/
     SettingsView.swift                          event picker row, team, LA toggle
     EventPickerView.swift                       NEW — picker sheet
@@ -929,9 +1060,11 @@ shared/src/commonMain/kotlin/.../shared/
   DataClasses.kt                                Event, Match, MatchTimes,
                                                 NexusEvent, EventSummary
   MatchId.kt                                    match key parsing
+  PitMap.kt                                     NEW — map geometry, wire → flat
 
 composeApp/src/commonMain/kotlin/.../
   Backend.kt                                    API client, getEvents
+  PitBackend.kt                                 NEW — pit map / addresses / teams
   Storage.kt                                    settings, default event ID
   ScheduleCache.kt                              NEW — last schedule on disk
   Constants.kt                                  HTTP client, Android status colours
@@ -945,6 +1078,7 @@ server/src/main/kotlin/.../server/
   Nexus.kt                                      proxy + status mapping
   Alliances.kt                                  NEW — playoff alliance join
   Events.kt                                     /events, /event/{event}
+  Pits.kt                                       NEW — /map, /pits, /teams
   Matches.kt                                    TBA scores
   Batteries.kt                                  battery CRUD routes
   Database.kt                                   Exposed tables, createSchema
