@@ -54,7 +54,7 @@ jobs:
 
       - name: Set up gcloud
         if: github.ref == 'refs/heads/main'
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       # The runner is already amd64, so no buildx --platform needed here.
       - name: Build and push image
