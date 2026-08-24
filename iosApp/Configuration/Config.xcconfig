@@ -1,7 +1,11 @@
+// TEAM_ID is a KMP-template bundle-ID *suffix*, not the Apple Developer team.
+// The Apple team is DEVELOPMENT_TEAM in project.pbxproj (XGQG27Y5C9). Leave blank.
 TEAM_ID=
 
 PRODUCT_NAME=technexus
-PRODUCT_BUNDLE_IDENTIFIER=net.jerryxf.technexus$(TEAM_ID)
+// Both targets override this in project.pbxproj; kept aligned so a deleted
+// target-level setting falls back to the right value instead of the old one.
+PRODUCT_BUNDLE_IDENTIFIER=net.jerryxf.technexus-beta$(TEAM_ID)
 
 CURRENT_PROJECT_VERSION=1
 MARKETING_VERSION=1.0
