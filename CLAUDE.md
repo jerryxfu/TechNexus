@@ -1,8 +1,9 @@
 # TechNexus — technical notes
 
-Last updated 18 Aug 2026. The server is deployed and live at `nexus.jerryxf.net`; the iOS app builds and runs against a
-pinned iOS 16.2 deployment target. Schedules refresh correctly, pull-to-refresh works, the app survives losing its
-connection, and playoff alliance numbers come through from Nexus.
+Last updated 24 Aug 2026. **Paused pending Apple** — see *Apple Developer account*. The server is deployed and live at
+`nexus.jerryxf.net`; the iOS app builds and runs against a pinned iOS 16.2 deployment target, **and as of 24 Aug
+installs on hardware** under a new Apple team. Schedules refresh correctly, pull-to-refresh works, the app survives
+losing its connection, and playoff alliance numbers come through from Nexus.
 
 **This is the working document for Claude, and for any developer who wants the reasoning rather than the summary.**
 `README.md` is public-facing — what the project is, how to run the server, how to deploy. `Style_iOS.md` covers SwiftUI
@@ -39,19 +40,20 @@ problem than it was.
 
 ## Where things stand
 
-The app builds and runs on the simulator against frc.nexus demo events. Schedule loads, highlighted teams work, the Live
-Activity renders on both the Lock Screen and the Dynamic Island, and Settings persists. The core loop was proven at the
-Las Vegas regional against a live event.
+The app builds and runs against frc.nexus demo events, on the simulator and — since 24 Aug — **on hardware**. Schedule
+loads, highlighted teams work, the Live Activity renders on both the Lock Screen and the Dynamic Island, and Settings
+persists. Device behaviour matched the simulator on first run, with no surprises. The core loop was proven at the Las
+Vegas regional against a live event.
 
 The backend is live on Cloud Run at `nexus.jerryxf.net`, fronted by Cloudflare, with Postgres on Neon. CI deploys on
 merge to `main`.
 
-It cannot be submitted yet. One blocker is outside the code; the rest is a list of finite tasks.
+The blocker that sat outside the code is gone. What remains is a list of finite tasks.
 
 | Area                   | State                                           |
 |------------------------|-------------------------------------------------|
 | Schedule tab           | Pull-to-refresh, offline cache, 15s poll        |
-| Live Activity          | Lock Screen + Island, 3 / 2 team cap            |
+| Live Activity          | Lock Screen + Island, verified on device        |
 | Pit tab                | Robot card, Pit map + Teams sections, legend    |
 | Pit map                | Pan/zoom, void overscroll, indicators, search   |
 | Settings               | Auto-save, reset to defaults, picker, About     |
@@ -62,51 +64,123 @@ It cannot be submitted yet. One blocker is outside the code; the rest is a list 
 | Playoff alliances      | Server joins Nexus alliances, renders A3 / A?   |
 | Offline                | Disk cache, backoff, freshness chip in header   |
 | Notifications          | Not started — but Nexus has webhooks, see below |
-| Device builds          | Blocked, see below                              |
+| Device builds          | Working 24 Aug — bundle IDs **provisional**     |
 
 ---
 
-## Blocker — Apple Developer account (owner: Jerry)
+## Apple Developer account — resolved 24 Aug 2026
 
-**Symptom:** App Store Connect knows team `HWB4Y653YR` and lists Jerry as Account Holder. The developer portal cannot
-resolve that same team and returns *"Unable to find a team with the given Team ID 'HWB4Y653YR' to which you belong."*
+**Root cause, after three months of looking in the wrong place.** The original account was enrolled at 18, below the 19
+Apple requires in Canada. A workaround circulating on Reddit — attributed there to an Apple support rep — was to set the
+Apple ID's age to 19 temporarily. That was done. It worked for a while, then left the account in a state no support
+script recognises: App Store Connect still authenticates and shows the team, while the developer portal renders as an
+account that was never enrolled and cannot enrol.
 
-**Consequences:** no access to Certificates, Identifiers & Profiles; no way to accept the updated Program License
-Agreement, which can only be accepted on the developer site; development certificate reported revoked; device builds and
-archiving both blocked; **no APNs auth key**, which is what gates all push work. Simulator builds are unaffected, which
-is why development has continued.
+That is the whole of the contradiction recorded here as *"Unable to find a team with the given Team ID `HWB4Y653YR` to
+which you belong"* against an App Store Connect that knew the team perfectly well. It was never a billing, agreement or
+outage problem, which is why every ticket framed that way went nowhere. Kept rather than deleted, because the wrong
+belief is the interesting part: the evidence gathered was all real and all irrelevant.
 
-**Established facts, all verified:**
+**Current state.** Second account, team **`XGQG27Y5C9`**, paid through **3 April 2027**. Developer portal, device builds
+and archiving all work. **First on-device run, 24 Aug: full parity with the simulator**, Live Activity included.
+Nineteen weeks of simulator-only development turned out to have hidden nothing.
 
-- Membership purchased 7 May 2026, order `W1499853418`, $136.82 CAD, cleared
-- Free Apps Agreement **Active**, 7 May 2026 – 7 May 2027
-- Roles: Account Holder + Admin. "Access to Certificates, Identifiers & Profiles" is enabled on the user record
-- A team provisioning profile was successfully generated 9 May 2026, including Jerry's iPhone — so the team existed and
-  worked briefly
-- `developer.apple.com/account` shows a "Join the Apple Developer Program"
-  banner; clicking Enroll returns *"already associated with the Account Holder of a membership"*
-- "View Membership Details" redirects to the maintenance page while Apple's status page and third-party monitors show
-  all systems operational
-- No email from Apple since the order confirmation. Nothing in spam
+Two things simulator ActivityKit still cannot show, so they remain unmeasured rather than disproved: the update budget,
+and background refresh with the app suspended. Both matter once the server is the sole author of the activity — see
+*Notifications*.
 
-**There is no workaround.** A free Personal Team is not created for an Apple ID that already holds a membership, so
-device builds cannot be unblocked with this Apple ID. A second, membership-free Apple ID would get a Personal Team, but
-the bundle IDs are registered under `HWB4Y653YR` and would need temporary renaming. Not worth it for one answer.
+**The old account is soft-locked and everything registered under it is locked with it.** `net.jerryxf.technexus` and
+`net.jerryxf.technexus.extension` are App IDs on `HWB4Y653YR`. Bundle IDs are globally unique across every Apple
+account, so neither can be re-registered under `XGQG27Y5C9` while they exist, and deleting them needs the developer
+portal that no longer opens.
 
-**Status, 18 Aug:** Developer Support has been contacted and their reply suggests this resolves soon. Nothing downstream
-is designed around that landing on a particular date.
+### Identity in use, from 24 Aug
 
-**Ticket:** submitted under Membership and Account → Program Purchase and Renewal. Lead with the contradiction between
-the two systems, not with a claim that the enrollment failed — the membership is demonstrably active and that framing
-invites a "your membership is active" close. Ask for the team record to be reconciled, for the License Agreement to be
-made acceptable, and for the term to be extended by the time lost since 7 May.
+|                       | Old                               | Current                                |
+|-----------------------|-----------------------------------|----------------------------------------|
+| Team                  | `HWB4Y653YR`                      | `XGQG27Y5C9`                           |
+| App bundle ID         | `net.jerryxf.technexus`           | `net.jerryxf.technexus-beta`           |
+| Extension bundle ID   | `net.jerryxf.technexus.extension` | `net.jerryxf.technexus-beta.extension` |
+| `CFBundleDisplayName` | TechNexus                         | TechNexus — deliberately unchanged     |
+| App Store listing     | —                                 | TechNexus Beta                         |
 
-**When it resolves:** Apple may or may not return the same Team ID. If it changes, `DEVELOPMENT_TEAM` in
-`project.pbxproj` needs updating.
+**The extension suffix is not cosmetic.** An app extension's bundle ID must be prefixed by its container's. Renaming the
+app without renaming the extension yields an app that installs and a Live Activity that does not.
 
-**What it does not block:** the server, the database schema, hosting, the settings UI, local notifications, App Store
-Connect metadata. Only *sending*
-pushes and *installing on hardware*.
+Only the App Store Connect *listing* carries "Beta". `CFBundleDisplayName` stays `TechNexus`, so the Home Screen is
+unchanged, and nothing on disk was renamed — no folder, target, scheme or product name. See *Gotchas* for why renaming
+folders here is worse than it looks.
+
+Two settings were fixed in the same pass, both pre-existing:
+
+- Release had no `INFOPLIST_KEY_CFBundleName` at all and fell through to `$(PRODUCT_NAME)` = `technexus` from
+  `Config.xcconfig`, so the shipping build had a lowercase bundle name while Debug did not
+- Both Debug configs' unqualified `CODE_SIGN_IDENTITY` is now scoped `[sdk=iphoneos*]`, closing the open item from *iOS
+  and toolchain, 17 Aug*
+
+`Config.xcconfig` also defines `TEAM_ID=` as a KMP-template bundle-ID **suffix**, nothing to do with Apple teams.
+Pasting a team ID there produces `net.jerryxf.technexusXGQG27Y5C9`. Commented in place.
+
+### Paused 24 Aug 2026, pending Apple
+
+**Development is stopped on everything bundle-ID-shaped until Apple replies.** A request has been sent on the open
+refund case asking Developer Support to delete two App IDs from team `HWB4Y653YR` so the identifiers are released:
+
+```
+net.jerryxf.technexus
+net.jerryxf.technexus.extension
+```
+
+Everything needed for that request to succeed is already true. No build was ever uploaded under either identifier and
+nothing was ever submitted, so the irreversible binding — upload — never happened. The App Store Connect record that
+referenced `net.jerryxf.technexus` **has been reassigned to a different bundle ID**, which was the blocking step: while
+a record points at an App ID, the portal refuses deletion with *"appears to be in use by the App Store."* That objection
+is now cleared, and the request is narrow and mechanical rather than another attempt at account reconciliation.
+
+The reassignment consumed one of the other identifiers on `HWB4Y653YR` permanently. That was a deliberate trade and the
+parked identifier is not wanted for anything.
+
+**Two outcomes:**
+
+- **Identifiers released** → revert to `net.jerryxf.technexus` and `net.jerryxf.technexus.extension` under
+  `XGQG27Y5C9`. This is the good branch and it dissolves the entire problem — no suffix, no rename, no migration
+- **Refused, or no reply** → the current `-beta` identity stands, but **`-beta` is a poor name to be stuck with
+  permanently.** Apple's own advice here is to pick a different bundle ID and move on, since it is not user-visible; the
+  suggested convention is an `-app` suffix. `net.jerryxf.technexus-app` was the candidate. **Decide before an App Store
+  Connect record exists for `-beta`** — creating one burns it the same way the old one was burned
+
+The `-beta` identity currently in `project.pbxproj` is therefore **provisional**. Do not treat it as settled, and do not
+let the APNs topic string (`<bundle-id>.push-type.liveactivity`) propagate into the server push sender until the branch
+is resolved. That string is the main place the bundle ID leaks out of the Xcode project.
+
+### Ownership, and the transfer in 2027
+
+The app currently ships under `XGQG27Y5C9`, which is not Jerry's own account — Apple requires 19 in Canada to enrol,
+which Quebec's own age of majority does not override. **3 April 2027 is Jerry's 19th birthday**, and the plan is to move
+the app to his own account then.
+
+**App Transfer is the mechanism, and it preserves everything.** A transferred app keeps its bundle ID, its reviews and
+ratings, and users keep receiving updates. That makes 2027 an administrative step rather than a rebuild — no new
+identity, no reinstall, no second App Store Connect record, no lost testers.
+
+**Two conditions, both easy to lose by accident:**
+
+1. **The app must have at least one version actually released to the App Store.** TestFlight-only does *not* qualify. If
+   TechNexus stays internal for a season it becomes permanently untransferable, which is the same trap the old bundle ID
+   fell into. A public listing nobody searches for is still functionally internal — publish it
+2. **Both accounts must be enrolled and active at transfer time**, with all agreements accepted and neither in a pending
+   or changing state. The `XGQG27Y5C9` membership expires **3 April 2027 — the same day Jerry becomes eligible to
+   receive it.** If it lapses on that date the transfer becomes impossible at the exact moment it becomes possible.
+   Renew it to overlap, or complete the transfer before expiry. The recipient has 60 days to accept, but initiation
+   needs a live account on the sending side
+
+Both conditions are unrecoverable once missed. Neither is enforced by anything except this note.
+
+### What is safe to work on while paused
+
+Only the identity is blocked. The entire server side of notifications is bundle-ID-independent: schema, the webhook
+receiver, `dataAsOfTime`-guarded state writes, diffing, and fan-out can all be built and tested with the send stubbed to
+a log. The APNs topic and the `.p8` are the only parts that need the branch resolved. See *Notifications*.
 
 ---
 
@@ -493,10 +567,9 @@ shared, so Samy gets both for free; the UI is his to mirror.
 - **Confirmed on the iOS 27 simulator:** Live Activity lifecycle, Lock Screen and Dynamic Island rendering, and
   `List<EventSummary>` bridging to `[EventSummary]`.
 
-Still open on the signing config: both Debug configs carry an unqualified `CODE_SIGN_IDENTITY = "Apple Development"`,
-which applies to the simulator SDK too and makes Xcode try to resolve team `HWB4Y653YR` for simulator runs. Xcode's
-default there is `-` (Sign to Run Locally), needing no account. Harmless today — simulator builds proceed anyway — but
-it's noise on every build and wants `[sdk=iphoneos*]` scoping.
+~~Still open on the signing config:~~ **Fixed 24 Aug.** Both Debug configs carried an unqualified `CODE_SIGN_IDENTITY =
+"Apple Development"`, which applied to the simulator SDK too and made Xcode resolve a team for simulator runs. Xcode's
+default there is `-` (Sign to Run Locally), needing no account. Now scoped `[sdk=iphoneos*]`.
 
 Unrelated, for Samy: the Android build warns that AGP 9.0.1 is untested against compileSdk 37.0.
 
@@ -702,7 +775,8 @@ that hostname.
 Nothing built. **Transport: APNs directly on iOS, FCM on Android.** The *trigger* is settled as of 19 Aug: Nexus
 webhooks, not a poller — see *frc.nexus → Webhooks* for the payload shape, the ordering rule and the auto-disable risk.
 Almost none of this work is blocked on Apple. Schema, receiver, `dataAsOfTime`-guarded state writes, diffing and fan-out
-are all buildable and testable now with the send stubbed to a log; only the `.p8` transport is gated.
+are all buildable and testable now with the send stubbed to a log. **The `.p8` transport stopped being gated on 24
+Aug.**
 
 Gaps not covered elsewhere:
 
@@ -721,8 +795,8 @@ Gaps not covered elsewhere:
   entitlement needs requesting.
 - **The Worker request budget does not improve.** Push moves Live Activity updates off the client, but the schedule tab
   still polls at 15s, so the 77k/day figure stands and two teams still don't fit. FCM's iOS path *is* APNs underneath
-  and needs the same `.p8` key, so neither route avoids the Apple blocker — the auth key comes from the developer portal
-  either way.
+  and needs the same `.p8` key, so neither route avoided the Apple blocker while it lasted — the auth key comes from the
+  developer portal either way.
 
 **Correction, 17 Aug:** the old reason given here — that FCM lags Apple's Live Activity payload format — stopped being
 true in late 2024. FCM supports Live Activities via `apns.live_activity_token`, and `firebase-admin-java` has
@@ -775,7 +849,7 @@ replaces N clients hammering the proxy with one upstream fetch per event.
    alongside the event key
 3. Backend sends to `https://api.push.apple.com/3/device/<token>` with
    `apns-push-type: liveactivity`,
-   `apns-topic: net.jerryxf.technexus.push-type.liveactivity`,
+   `apns-topic: net.jerryxf.technexus-beta.push-type.liveactivity`,
    `apns-priority: 10`, body
    `{"aps": {"timestamp": …, "event": "update", "content-state": {…}, "stale-date": …}}`
 4. `content-state` keys must match `ScheduleActivityAttributes.ContentState`
@@ -783,9 +857,10 @@ replaces N clients hammering the proxy with one upstream fetch per event.
    `blueTeams`, `startTimeEpoch`, `highlightedTeamsSummary`, `eventKey`. Each
    `HighlightedTeamInfo` is `team`, `matchLabel`, `status`, `statusEtaEpoch`,
    `colorHex`
-5. Push Notifications capability on the app target, which generates
-   `aps-environment`
-6. An APNs auth key (`.p8`) from the developer portal → Keys
+5. Push Notifications capability on the **app** target, which generates `aps-environment`. App target only — ActivityKit
+   push tokens come from the app process; the widget extension just renders
+6. An APNs auth key (`.p8`) from the developer portal → Keys. **Unblocked as of 24 Aug.** One download only, no second
+   chance; note the Key ID alongside team `XGQG27Y5C9` for `pushy`
 
 The payload can carry an `alert` block alongside `content-state`, so one push can both update the card and notify —
 better than sending a separate alert push while a Live Activity is already on screen.
@@ -1084,6 +1159,14 @@ and draw into one too, and no zoom level can reach the margin.
 of 144 pits. `MatchStatusHelper.queuingHorizonMs` is the single horizon both the schedule badges and the pit map apply —
 it was 10 minutes in `MatchCardView` while the comment above it said 30, so nobody had looked at that number in a while.
 
+**Folder names are load-bearing, and renaming them is not a cosmetic act.** `iosApp`, `TechNexusExtension` and
+`Configuration` are each a `PBXFileSystemSynchronizedRootGroup` with a literal `path =`. Rename one outside Xcode and
+the group resolves to nothing and gets dropped — the same failure that deleted the `TechNexusExtension` group in August
+and produced a blank Dynamic Island. Six build settings also hardcode those paths: `INFOPLIST_FILE` twice per target and
+`DEVELOPMENT_ASSET_PATHS` twice. None of it is user-visible anyway: the Home Screen reads `CFBundleDisplayName`, the
+store listing comes from App Store Connect, and `ActivityConfiguration` has no `configurationDisplayName` the way
+`WidgetConfiguration` does, so the extension has no display string to rename either.
+
 ---
 
 ## File map
@@ -1179,6 +1262,7 @@ event, and everything added since Las Vegas is untested against real data, so it
 particular cannot be meaningfully tested any other way short of building a demo event and running selection in it. It is
 not a ship date and nothing should be rushed to meet it.
 
-The real gate on submission is the September Apple event: macOS 27 and Xcode 27 reaching general availability is what
-makes a submittable toolchain exist. The plan is to have everything finished and verified before then, and submit once
-it lands.
+The remaining gate on submission is the September Apple event: macOS 27 and Xcode 27 reaching general availability is
+what makes a submittable toolchain exist. The plan is to have everything finished and verified before then, and submit
+TechNexus Beta once it lands. TechNexus proper is a 2027 release under a different bundle ID — see *Apple Developer
+account*.
